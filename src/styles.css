@@ -18,7 +18,7 @@
  * (--background, --foreground, --primary, --secondary, --muted, --accent, ...) plus
  * new tokens as needed, font tokens, and custom styles and animations.
  *
- * The @theme inline block maps CSS custom properties to Tailwind utility
+ * The @theme inline block maps CSS custom properties to Tailwing utility
  * classes (e.g. --color-primary -> bg-primary, text-primary).
  *
  * The :root and .dark blocks define the actual color values using oklch.
@@ -76,8 +76,8 @@
   --color-warning: var(--warning);
   --color-glass: var(--glass);
   --color-glass-strong: var(--glass-strong);
-  --font-sans: "Onest", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Unbounded", "Onest", ui-sans-serif, sans-serif;
+  --font-sans: "Roboto", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Roboto", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --shadow-glow: var(--shadow-glow);
 }
@@ -141,7 +141,9 @@
 
 @layer utilities {
   .glass {
-    background: linear-gradient(135deg, oklch(0.36 0.05 160 / 0.55), oklch(0.24 0.03 166 / 0.62));
+    background:
+      radial-gradient(120% 90% at 0% 0%, oklch(0.76 0.14 70 / 0.14), transparent 55%),
+      linear-gradient(135deg, oklch(0.36 0.05 160 / 0.42), oklch(0.24 0.03 166 / 0.5));
     border: 1px solid oklch(1 0 0 / 10%);
     backdrop-filter: blur(16px) saturate(130%);
     -webkit-backdrop-filter: blur(16px) saturate(130%);

@@ -1,8 +1,9 @@
--- Kassa 24/7: to'liq ma'lumotlar bazasi sozlamasi (o'zingizning bazangiz uchun).
--- SQL Editor'ga to'liq nusxalab, bir marta ishga tushiring.
+-- Kassa 24/7: to'liq ma'lumotlar bazasi sozlamasi (o'zingizning PostgreSQL bazangiz uchun).
+-- Railway'da bazani ochib, shu faylni bir marta ishga tushirasiz (CLI yoki SQL muharriri).
+-- Qayta ishga tushirish xatosiz o'tadi: hammasi "yo'q bo'lsa yaratadi".
 
--- Telegram users
-CREATE TABLE public.tg_users (
+-- Telegram foydalanuvchilari
+CREATE TABLE IF NOT EXISTS public.tg_users (
   id bigint PRIMARY KEY,
   username text,
   first_name text,
@@ -18,12 +19,10 @@ CREATE TABLE public.tg_users (
   created_at timestamptz NOT NULL DEFAULT now(),
   last_seen_at timestamptz NOT NULL DEFAULT now()
 );
-GRANT ALL ON public.tg_users TO service_role;
-ALTER TABLE public.tg_users ENABLE ROW LEVEL SECURITY;
-CREATE INDEX tg_users_referrer_idx ON public.tg_users(referrer_id);
+CREATE INDEX IF NOT EXISTS tg_users_referrer_idx ON public.tg_users(referrer_id);
 
--- Bookmakers
-CREATE TABLE public.bookmakers (
+-- Bukmekerlar
+CREATE TABLE IF NOT EXISTS public.bookmakers (
   id text PRIMARY KEY,
   name text NOT NULL,
   logo_url text,
@@ -38,8 +37,6 @@ CREATE TABLE public.bookmakers (
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-GRANT ALL ON public.bookmakers TO service_role;
-ALTER TABLE public.bookmakers ENABLE ROW LEVEL SECURITY;
 
 INSERT INTO public.bookmakers (id, name, deposit_enabled, withdraw_enabled, address, sort_order, is_active) VALUES
   ('1xbet', '1XBET', true, true, 'Toshkent shahar, Kassa 24/7', 1, true),
@@ -47,13 +44,19 @@ INSERT INTO public.bookmakers (id, name, deposit_enabled, withdraw_enabled, addr
   ('melbet', 'MELBET', true, true, 'Toshkent shahar, Kassa 24/7', 3, true),
   ('dbbet', 'DB-BET', false, true, 'Toshkent shahar, Kassa 24/7', 4, false),
   ('xparibet', 'XPARIBET', false, true, 'Toshkent shahar, Olmazor', 5, true),
-  ('winwin', 'WINWIN', false, true, 'Toshkent shahar, Kassa 24/7', 6, true);
+  ('winwin', 'WINWIN', false, true, 'Toshkent shahar, Kassa 24/7', 6, true)
+ON CONFLICT (id) DO NOTHING;
 
--- Transactions / requests
-CREATE TYPE public.tx_type AS ENUM ('wallet_topup','card_withdraw','bk_deposit','bk_withdraw','referral_bonus','adjustment');
-CREATE TYPE public.tx_status AS ENUM ('pending','approved','rejected');
+-- Amaliyot turlari va holatlari
+DO $$ BEGIN
+  CREATE TYPE public.tx_type AS ENUM ('wallet_topup','card_withdraw','bk_deposit','bk_withdraw','referral_bonus','adjustment');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE public.tx_status AS ENUM ('pending','approved','rejected');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-CREATE TABLE public.transactions (
+-- So'rovlar / amaliyotlar
+CREATE TABLE IF NOT EXISTS public.transactions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   number bigserial UNIQUE,
   user_id bigint NOT NULL REFERENCES public.tg_users(id) ON DELETE CASCADE,
@@ -71,20 +74,15 @@ CREATE TABLE public.transactions (
   created_at timestamptz NOT NULL DEFAULT now(),
   processed_at timestamptz
 );
-GRANT ALL ON public.transactions TO service_role;
-GRANT USAGE, SELECT ON SEQUENCE public.transactions_number_seq TO service_role;
-ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
-CREATE INDEX transactions_user_idx ON public.transactions(user_id, created_at DESC);
-CREATE INDEX transactions_status_idx ON public.transactions(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS transactions_user_idx ON public.transactions(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS transactions_status_idx ON public.transactions(status, created_at DESC);
 
--- Settings
-CREATE TABLE public.app_settings (
+-- Sozlamalar
+CREATE TABLE IF NOT EXISTS public.app_settings (
   key text PRIMARY KEY,
   value text NOT NULL DEFAULT '',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-GRANT ALL ON public.app_settings TO service_role;
-ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 
 INSERT INTO public.app_settings (key, value) VALUES
   ('brand_name', 'Kassa 24/7'),
@@ -100,20 +98,19 @@ INSERT INTO public.app_settings (key, value) VALUES
   ('min_card_withdraw', '10000'),
   ('max_card_withdraw', '10000000'),
   ('public_url', ''),
-  ('bot_username', '');
+  ('bot_username', '')
+ON CONFLICT (key) DO NOTHING;
 
--- Videos (fixed slots, admin uploads files)
-CREATE TABLE public.videos (
+-- Videolar (tayyor joylar, admin fayl yuklaydi)
+CREATE TABLE IF NOT EXISTS public.videos (
   slot text PRIMARY KEY,
   url text,
   storage_path text,
   tg_file_id text,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-GRANT ALL ON public.videos TO service_role;
-ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
 
--- Atomic: create a request that takes money from the wallet (card withdraw, bookmaker deposit)
+-- Atomic: hamyondan pul oluvchi so'rov yaratish (kartaga yechish, bukmekerga to'ldirish)
 CREATE OR REPLACE FUNCTION public.create_debit_request(
   p_user_id bigint, p_type public.tx_type, p_amount bigint, p_bookmaker_id text,
   p_account_id text, p_card_number text, p_bonus bigint, p_fee bigint
@@ -134,7 +131,7 @@ BEGIN
   RETURN v_tx;
 END $$;
 
--- Atomic: approve a pending request
+-- Atomic: kutilayotgan so'rovni tasdiqlash
 CREATE OR REPLACE FUNCTION public.approve_transaction(
   p_tx_id uuid, p_amount bigint, p_fee_percent numeric, p_referral_percent numeric, p_note text
 ) RETURNS public.transactions
@@ -178,7 +175,7 @@ BEGIN
   RETURN v_tx;
 END $$;
 
--- Atomic: reject a pending request (refund held money)
+-- Atomic: so'rovni rad etish (ushlab qolingan pulni qaytarish)
 CREATE OR REPLACE FUNCTION public.reject_transaction(p_tx_id uuid, p_note text)
 RETURNS public.transactions
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -196,7 +193,7 @@ BEGIN
   RETURN v_tx;
 END $$;
 
--- Atomic: manual balance adjustment by admin
+-- Atomic: admin balances tuzatishi
 CREATE OR REPLACE FUNCTION public.adjust_balance(p_user_id bigint, p_delta bigint, p_note text)
 RETURNS bigint
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
@@ -209,18 +206,3 @@ BEGIN
   VALUES (p_user_id, 'adjustment', 'approved', p_delta, p_note, now());
   RETURN v_new;
 END $$;
-
-REVOKE ALL ON FUNCTION public.create_debit_request(bigint, public.tx_type, bigint, text, text, text, bigint, bigint) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.approve_transaction(uuid, bigint, numeric, numeric, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.reject_transaction(uuid, text) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.adjust_balance(bigint, bigint, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.create_debit_request(bigint, public.tx_type, bigint, text, text, text, bigint, bigint) TO service_role;
-GRANT EXECUTE ON FUNCTION public.approve_transaction(uuid, bigint, numeric, numeric, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.reject_transaction(uuid, text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.adjust_balance(bigint, bigint, text) TO service_role;
-
--- Fayl saqlash joylari (yopiq): logotip/videolar va to'lov cheklari
-INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES ('media', 'media', false, 209715200),
-       ('receipts', 'receipts', false, 10485760)
-ON CONFLICT (id) DO NOTHING;

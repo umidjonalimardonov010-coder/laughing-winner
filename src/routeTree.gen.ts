@@ -18,7 +18,9 @@ import { Route as AdminRequestsRouteImport } from './routes/admin.requests'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminVideosRouteImport } from './routes/admin.videos'
+import { Route as ApiPublicMediaSplatRouteImport } from './routes/api/public/media/$'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
+import { Route as ApiPublicUploadSplatRouteImport } from './routes/api/public/upload/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -65,12 +67,22 @@ const AdminVideosRoute = AdminVideosRouteImport.update({
   path: '/videos',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiPublicMediaSplatRoute = ApiPublicMediaSplatRouteImport.update({
+  id: '/api/public/media/$',
+  path: '/api/public/media/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicTelegramWebhookRoute =
   ApiPublicTelegramWebhookRouteImport.update({
     id: '/api/public/telegram/webhook',
     path: '/api/public/telegram/webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicUploadSplatRoute = ApiPublicUploadSplatRouteImport.update({
+  id: '/api/public/upload/$',
+  path: '/api/public/upload/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,7 +94,9 @@ export interface FileRoutesByFullPath {
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/media/$': typeof ApiPublicMediaSplatRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
+  '/api/public/upload/$': typeof ApiPublicUploadSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -93,7 +107,9 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
   '/admin': typeof AdminIndexRoute
+  '/api/public/media/$': typeof ApiPublicMediaSplatRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
+  '/api/public/upload/$': typeof ApiPublicUploadSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -106,7 +122,9 @@ export interface FileRoutesById {
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/media/$': typeof ApiPublicMediaSplatRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
+  '/api/public/upload/$': typeof ApiPublicUploadSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -120,7 +138,9 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/videos'
     | '/admin/'
+    | '/api/public/media/$'
     | '/api/public/telegram/webhook'
+    | '/api/public/upload/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -131,7 +151,9 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/videos'
     | '/admin'
+    | '/api/public/media/$'
     | '/api/public/telegram/webhook'
+    | '/api/public/upload/$'
   id:
     | '__root__'
     | '/'
@@ -143,14 +165,18 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/videos'
     | '/admin/'
+    | '/api/public/media/$'
     | '/api/public/telegram/webhook'
+    | '/api/public/upload/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   AppRoute: typeof AppRoute
+  ApiPublicMediaSplatRoute: typeof ApiPublicMediaSplatRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
+  ApiPublicUploadSplatRoute: typeof ApiPublicUploadSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -218,11 +244,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminVideosRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/public/media/$': {
+      id: '/api/public/media/$'
+      path: '/api/public/media/$'
+      fullPath: '/api/public/media/$'
+      preLoaderRoute: typeof ApiPublicMediaSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/telegram/webhook': {
       id: '/api/public/telegram/webhook'
       path: '/api/public/telegram/webhook'
       fullPath: '/api/public/telegram/webhook'
       preLoaderRoute: typeof ApiPublicTelegramWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/upload/$': {
+      id: '/api/public/upload/$'
+      path: '/api/public/upload/$'
+      fullPath: '/api/public/upload/$'
+      preLoaderRoute: typeof ApiPublicUploadSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -252,7 +292,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   AppRoute: AppRoute,
+  ApiPublicMediaSplatRoute: ApiPublicMediaSplatRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
+  ApiPublicUploadSplatRoute: ApiPublicUploadSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

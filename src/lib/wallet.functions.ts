@@ -2,12 +2,19 @@
 // which is verified on the server before any data is read or written.
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { db } from "./server/db.server";
-import { friendlyError, getActiveBookmaker, walletAuth as auth } from "./server/wallet-auth.server";
+import { sql } from "./server/db.server";
+import {
+  BOOKMAKER_COLS,
+  friendlyError,
+  getActiveBookmaker,
+  walletAuth as auth,
+  type Bookmaker,
+} from "./server/wallet-auth.server";
 import { getSettings, num } from "./server/settings.server";
 import { countReferrals, listReferrals } from "./server/users.server";
 import { signedUploadUrl, signedUrls } from "./server/media.server";
 import { notifyAdminsNewRequest } from "./server/notify.server";
+import { TX_COLS, type TxRow } from "./server/tx.server";
 import { VIDEO_SLOTS } from "./videos";
 
 const initSchema = z.object({ initData: z.string().max(8192) });
@@ -17,21 +24,21 @@ export const walletBootstrap = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { user, demo } = await auth(data.initData);
     const s = await getSettings();
-    const [{ data: bks }, { data: vids }, refs] = await Promise.all([
-      db.from("bookmakers").select("*").eq("is_active", true).order("sort_order"),
-      db.from("videos").select("slot,storage_path"),
+    const [bks, vids, refs] = await Promise.all([
+      sql<Bookmaker[]>`select ${BOOKMAKER_COLS()} from public.bookmakers where is_active order by sort_order`,
+      sql<{ slot: string; storage_path: string | null }[]>`select slot, storage_path from public.videos`,
       countReferrals(user.id),
     ]);
     const logoMap = await signedUrls(
       "media",
-      (bks ?? []).map((b) => b.logo_url ?? "").filter(Boolean),
+      bks.map((b) => b.logo_url ?? "").filter(Boolean),
     );
     const vidMap = await signedUrls(
       "media",
-      (vids ?? []).map((v) => v.storage_path ?? "").filter(Boolean),
+      vids.map((v) => v.storage_path ?? "").filter(Boolean),
     );
     const videos: Record<string, string> = {};
-    for (const v of vids ?? []) {
+    for (const v of vids) {
       const u = v.storage_path ? vidMap[v.storage_path] : undefined;
       if (u) videos[v.slot] = u;
     }
@@ -62,7 +69,7 @@ export const walletBootstrap = createServerFn({ method: "POST" })
         min_card_withdraw: num(s.min_card_withdraw, 10000),
         max_card_withdraw: num(s.max_card_withdraw, 10000000),
       },
-      bookmakers: (bks ?? []).map((b) => ({
+      bookmakers: bks.map((b) => ({
         id: b.id,
         name: b.name,
         logo: b.logo_url ? (logoMap[b.logo_url] ?? null) : null,
@@ -83,13 +90,11 @@ export const walletHistory = createServerFn({ method: "POST" })
   .inputValidator((d) => initSchema.parse(d))
   .handler(async ({ data }) => {
     const { user } = await auth(data.initData);
-    const { data: txs } = await db
-      .from("transactions")
-      .select("id,number,type,status,amount,bonus,fee,bookmaker_id,account_id,card_number,admin_note,created_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(100);
-    return (txs ?? []).map((t) => ({ ...t, amount: Number(t.amount), bonus: Number(t.bonus), fee: Number(t.fee) }));
+    return sql<TxRow[]>`
+      select ${TX_COLS()} from public.transactions
+      where user_id = ${user.id}
+      order by created_at desc
+      limit 100`;
   });
 
 export const walletReferrals = createServerFn({ method: "POST" })
@@ -104,7 +109,7 @@ export const walletSetLang = createServerFn({ method: "POST" })
   .inputValidator((d) => initSchema.extend({ lang: z.enum(["uz", "ru", "en"]) }).parse(d))
   .handler(async ({ data }) => {
     const { user } = await auth(data.initData);
-    await db.from("tg_users").update({ lang: data.lang, lang_chosen: true }).eq("id", user.id);
+    await sql`update public.tg_users set lang = ${data.lang}, lang_chosen = true where id = ${user.id}`;
     return { ok: true };
   });
 
@@ -133,19 +138,19 @@ export const walletBkDeposit = createServerFn({ method: "POST" })
     const s = await getSettings();
     const bonus = Math.floor((data.amount * num(s.deposit_bonus_percent, 0)) / 100);
     const fee = Math.floor((data.amount * Number(bk.deposit_fee_percent)) / 100);
-    const { data: tx, error } = await db.rpc("create_debit_request", {
-      p_user_id: user.id,
-      p_type: "bk_deposit",
-      p_amount: data.amount,
-      p_bookmaker_id: bk.id,
-      p_account_id: data.accountId,
-      p_card_number: "",
-      p_bonus: bonus,
-      p_fee: fee,
-    });
-    if (error) friendlyError(new Error(error.message));
-    await notifyAdminsNewRequest(tx!);
-    return { ok: true, number: tx!.number };
+    let tx: TxRow | undefined;
+    try {
+      const rows = await sql<TxRow[]>`
+        select ${TX_COLS()} from create_debit_request(
+          ${user.id}, 'bk_deposit', ${data.amount}, ${bk.id}, ${data.accountId}, '', ${bonus}, ${fee}
+        )`;
+      tx = rows[0];
+    } catch (e) {
+      friendlyError(e);
+    }
+    if (!tx) throw new Error("request_failed");
+    await notifyAdminsNewRequest(tx);
+    return { ok: true, number: tx.number };
   });
 
 export const walletBkWithdraw = createServerFn({ method: "POST" })
@@ -158,19 +163,12 @@ export const walletBkWithdraw = createServerFn({ method: "POST" })
     const { user } = await auth(data.initData);
     const bk = await getActiveBookmaker(data.bookmakerId);
     if (!bk.withdraw_enabled) throw new Error("not_available");
-    const { data: tx, error } = await db
-      .from("transactions")
-      .insert({
-        user_id: user.id,
-        type: "bk_withdraw",
-        bookmaker_id: bk.id,
-        account_id: data.accountId,
-        withdraw_code: data.code,
-        amount: 0,
-      })
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
+    const rows = await sql<TxRow[]>`
+      insert into public.transactions (user_id, type, bookmaker_id, account_id, withdraw_code, amount)
+      values (${user.id}, 'bk_withdraw', ${bk.id}, ${data.accountId}, ${data.code}, 0)
+      returning ${TX_COLS()}`;
+    const tx = rows[0];
+    if (!tx) throw new Error("request_failed");
     await notifyAdminsNewRequest(tx);
     return { ok: true, number: tx.number };
   });
@@ -194,12 +192,12 @@ export const walletTopup = createServerFn({ method: "POST" })
     const s = await getSettings();
     if (data.amount < num(s.min_topup, 5000) || data.amount > num(s.max_topup, 10000000)) throw new Error("invalid_amount");
     if (data.receiptPath && !data.receiptPath.startsWith(`${user.id}/`)) throw new Error("invalid_receipt");
-    const { data: tx, error } = await db
-      .from("transactions")
-      .insert({ user_id: user.id, type: "wallet_topup", amount: data.amount, receipt_path: data.receiptPath })
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
+    const rows = await sql<TxRow[]>`
+      insert into public.transactions (user_id, type, amount, receipt_path)
+      values (${user.id}, 'wallet_topup', ${data.amount}, ${data.receiptPath})
+      returning ${TX_COLS()}`;
+    const tx = rows[0];
+    if (!tx) throw new Error("request_failed");
     await notifyAdminsNewRequest(tx);
     return { ok: true, number: tx.number };
   });
@@ -215,17 +213,17 @@ export const walletCardWithdraw = createServerFn({ method: "POST" })
     const s = await getSettings();
     if (data.amount < num(s.min_card_withdraw, 10000) || data.amount > num(s.max_card_withdraw, 10000000))
       throw new Error("invalid_amount");
-    const { data: tx, error } = await db.rpc("create_debit_request", {
-      p_user_id: user.id,
-      p_type: "card_withdraw",
-      p_amount: data.amount,
-      p_bookmaker_id: null as unknown as string,
-      p_account_id: "",
-      p_card_number: data.cardNumber,
-      p_bonus: 0,
-      p_fee: 0,
-    });
-    if (error) friendlyError(new Error(error.message));
-    await notifyAdminsNewRequest(tx!);
-    return { ok: true, number: tx!.number };
+    let tx: TxRow | undefined;
+    try {
+      const rows = await sql<TxRow[]>`
+        select ${TX_COLS()} from create_debit_request(
+          ${user.id}, 'card_withdraw', ${data.amount}, null, '', ${data.cardNumber}, 0, 0
+        )`;
+      tx = rows[0];
+    } catch (e) {
+      friendlyError(e);
+    }
+    if (!tx) throw new Error("request_failed");
+    await notifyAdminsNewRequest(tx);
+    return { ok: true, number: tx.number };
   });

@@ -2,11 +2,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestUrl } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { db } from "./server/db.server";
+import { countOf, maybeOne, sql, ts } from "./server/db.server";
 import { adminConfigured, adminSession, isAdmin, passwordMatches, requireAdmin } from "./server/admin-session.server";
 import { getSettings, num, saveSettings, SETTING_KEYS } from "./server/settings.server";
-import { signedUploadUrl, signedUrl, signedUrls } from "./server/media.server";
+import { removeMedia, signedUploadUrl, signedUrl, signedUrls } from "./server/media.server";
 import { notifyUserStatus } from "./server/notify.server";
+import { TX_COLS, type TxRow } from "./server/tx.server";
+import { BOOKMAKER_COLS, type Bookmaker } from "./server/wallet-auth.server";
+import { USER_COLS, type TgUser } from "./server/users.server";
 import { getBotInfo, telegramMode, tg, webhookSecret } from "./server/telegram.server";
 import { VIDEO_SLOT_IDS } from "./videos";
 
@@ -38,18 +41,31 @@ export const adminDashboard = createServerFn({ method: "POST" })
     const since = new Date();
     since.setHours(0, 0, 0, 0);
     since.setDate(since.getDate() - (data.days - 1));
-    const { data: txs, error } = await db
-      .from("transactions")
-      .select("type,status,amount,bonus,fee,created_at,processed_at,bookmaker_id")
-      .gte("created_at", since.toISOString())
-      .limit(20000);
-    if (error) throw new Error(error.message);
-    const [{ count: users }, { count: pending }, { data: balances }] = await Promise.all([
-      db.from("tg_users").select("id", { count: "exact", head: true }),
-      db.from("transactions").select("id", { count: "exact", head: true }).eq("status", "pending"),
-      db.from("tg_users").select("balance").limit(50000),
+    const sinceIso = since.toISOString();
+
+    const txs = await sql<
+      {
+        type: string;
+        status: string;
+        amount: number;
+        bonus: number;
+        fee: number;
+        created_at: string;
+        processed_at: string | null;
+        bookmaker_id: string | null;
+      }[]
+    >`
+      select type, status, amount::float8 as amount, bonus::float8 as bonus, fee::float8 as fee,
+        ${ts("created_at")} as created_at, ${ts("processed_at")} as processed_at, bookmaker_id
+      from public.transactions
+      where created_at >= ${sinceIso}
+      limit 20000`;
+    const [users, pending, balances] = await Promise.all([
+      countOf(sql`select count(*)::float8 as n from public.tg_users`),
+      countOf(sql`select count(*)::float8 as n from public.transactions where status = 'pending'`),
+      sql<{ balance: number }[]>`select balance::float8 as balance from public.tg_users limit 50000`,
     ]);
-    const totalBalance = (balances ?? []).reduce((a, b) => a + Number(b.balance), 0);
+    const totalBalance = balances.reduce((a, b) => a + Number(b.balance), 0);
 
     const byType: Record<string, { count: number; sum: number }> = {};
     const byBk: Record<string, { deposit: number; withdraw: number }> = {};
@@ -60,8 +76,7 @@ export const adminDashboard = createServerFn({ method: "POST" })
       const key = d.toISOString().slice(0, 10);
       days[key] = { date: key, kirim: 0, chiqim: 0 };
     }
-    let newUsersStart = since.toISOString();
-    for (const t of txs ?? []) {
+    for (const t of txs) {
       if (t.status !== "approved") continue;
       const amt = Number(t.amount);
       const bt = (byType[t.type] ??= { count: 0, sum: 0 });
@@ -81,15 +96,11 @@ export const adminDashboard = createServerFn({ method: "POST" })
         if (t.type === "bk_withdraw") b.withdraw += amt;
       }
     }
-    const { count: newUsers } = await db
-      .from("tg_users")
-      .select("id", { count: "exact", head: true })
-      .gte("created_at", newUsersStart);
-    newUsersStart = "";
+    const newUsers = await countOf(sql`select count(*)::float8 as n from public.tg_users where created_at >= ${sinceIso}`);
     return {
-      users: users ?? 0,
-      newUsers: newUsers ?? 0,
-      pending: pending ?? 0,
+      users,
+      newUsers,
+      pending,
       totalBalance,
       byType,
       byBk,
@@ -114,34 +125,59 @@ export const adminListRequests = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     const pageSize = 30;
-    let q = db
-      .from("transactions")
-      .select("*, tg_users!transactions_user_id_fkey(id,username,first_name,balance), bookmakers(name)", { count: "exact" })
-      .order("created_at", { ascending: false })
-      .range(data.page * pageSize, data.page * pageSize + pageSize - 1);
-    if (data.status !== "all") q = q.eq("status", data.status);
-    if (data.type !== "all") q = q.eq("type", data.type);
-    else q = q.in("type", ["wallet_topup", "card_withdraw", "bk_deposit", "bk_withdraw"]);
-    const s = data.search.trim();
-    if (s) {
-      if (/^\d+$/.test(s)) q = q.or(`user_id.eq.${s},number.eq.${s},account_id.eq.${s}`);
-      else q = q.or(`account_id.ilike.%${s.replace(/[%,()]/g, "")}%,withdraw_code.eq.${s.replace(/[%,()]/g, "")}`);
+
+    const statusCond = data.status === "all" ? sql`` : sql`and t.status = ${data.status}`;
+    const typeCond =
+      data.type === "all"
+        ? sql`and t.type in ('wallet_topup','card_withdraw','bk_deposit','bk_withdraw')`
+        : sql`and t.type = ${data.type}`;
+    const needle = data.search.trim();
+    let searchCond = sql``;
+    if (needle) {
+      if (/^\d+$/.test(needle)) {
+        searchCond = sql`and (t.user_id = ${needle} or t.number = ${needle} or t.account_id = ${needle})`;
+      } else {
+        const clean = needle.replace(/[%,()]/g, "");
+        searchCond = sql`and (t.account_id ilike ${`%${clean}%`} or t.withdraw_code = ${clean})`;
+      }
     }
-    const { data: rows, error, count } = await q;
-    if (error) throw new Error(error.message);
+
+    const total = await countOf(
+      sql`select count(*)::float8 as n from public.transactions t where true ${statusCond} ${typeCond} ${searchCond}`,
+    );
+    const rows = await sql<
+      (TxRow & {
+        username: string | null;
+        first_name: string | null;
+        user_balance: number | null;
+        bk_name: string | null;
+      })[]
+    >`
+      select ${TX_COLS()},
+        (select u.username from public.tg_users u where u.id = t.user_id) as username,
+        (select u.first_name from public.tg_users u where u.id = t.user_id) as first_name,
+        (select u.balance::float8 from public.tg_users u where u.id = t.user_id) as user_balance,
+        (select b.name from public.bookmakers b where b.id = t.bookmaker_id) as bk_name
+      from public.transactions t
+      where true ${statusCond} ${typeCond} ${searchCond}
+      order by t.created_at desc
+      limit ${pageSize} offset ${data.page * pageSize}`;
+
     const receiptMap = await signedUrls(
       "receipts",
-      (rows ?? []).map((r) => r.receipt_path ?? "").filter(Boolean),
+      rows.map((r) => r.receipt_path ?? "").filter(Boolean),
       60 * 60,
     );
     return {
-      total: count ?? 0,
+      total,
       pageSize,
-      rows: (rows ?? []).map((r) => ({
+      rows: rows.map((r) => ({
         ...r,
-        amount: Number(r.amount),
-        bonus: Number(r.bonus),
-        fee: Number(r.fee),
+        tg_users:
+          r.user_id === null
+            ? null
+            : { id: r.user_id, username: r.username, first_name: r.first_name, balance: Number(r.user_balance ?? 0) },
+        bookmakers: r.bk_name ? { name: r.bk_name } : null,
         receipt_url: r.receipt_path ? (receiptMap[r.receipt_path] ?? null) : null,
       })),
     };
@@ -153,22 +189,25 @@ export const adminApproveRequest = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireAdmin();
-    const { data: tx } = await db.from("transactions").select("bookmaker_id,type").eq("id", data.id).single();
+    const t = await maybeOne(
+      sql<{ bookmaker_id: string | null; type: string }[]>`select bookmaker_id, type from public.transactions where id = ${data.id}`,
+    );
     let feePercent = 0;
-    if (tx?.bookmaker_id && tx.type === "bk_withdraw") {
-      const { data: bk } = await db.from("bookmakers").select("withdraw_fee_percent").eq("id", tx.bookmaker_id).single();
+    if (t?.bookmaker_id && t.type === "bk_withdraw") {
+      const bk = await maybeOne(
+        sql<{ withdraw_fee_percent: number }[]>`
+          select withdraw_fee_percent::float8 as withdraw_fee_percent from public.bookmakers where id = ${t.bookmaker_id}`,
+      );
       feePercent = Number(bk?.withdraw_fee_percent ?? 0);
     }
     const s = await getSettings();
-    const { data: done, error } = await db.rpc("approve_transaction", {
-      p_tx_id: data.id,
-      p_amount: data.amount,
-      p_fee_percent: feePercent,
-      p_referral_percent: num(s.referral_percent, 0),
-      p_note: data.note || (null as unknown as string),
-    });
-    if (error) throw new Error(error.message);
-    await notifyUserStatus(done!);
+    const rows = await sql<TxRow[]>`
+      select ${TX_COLS()} from approve_transaction(
+        ${data.id}, ${data.amount}, ${feePercent}, ${num(s.referral_percent, 0)}, ${data.note || null}
+      )`;
+    const done = rows[0];
+    if (!done) throw new Error("not_found");
+    await notifyUserStatus(done);
     return { ok: true };
   });
 
@@ -176,12 +215,10 @@ export const adminRejectRequest = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ id: z.string().uuid(), note: z.string().max(300).default("") }).parse(d))
   .handler(async ({ data }) => {
     await requireAdmin();
-    const { data: done, error } = await db.rpc("reject_transaction", {
-      p_tx_id: data.id,
-      p_note: data.note || (null as unknown as string),
-    });
-    if (error) throw new Error(error.message);
-    await notifyUserStatus(done!);
+    const rows = await sql<TxRow[]>`select ${TX_COLS()} from reject_transaction(${data.id}, ${data.note || null})`;
+    const done = rows[0];
+    if (!done) throw new Error("not_found");
+    await notifyUserStatus(done);
     return { ok: true };
   });
 
@@ -191,20 +228,22 @@ export const adminListUsers = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     const pageSize = 30;
-    let q = db
-      .from("tg_users")
-      .select("*", { count: "exact" })
-      .order("created_at", { ascending: false })
-      .range(data.page * pageSize, data.page * pageSize + pageSize - 1);
-    const s = data.search.trim().replace(/^@/, "").replace(/[%,()]/g, "");
-    if (s) q = /^\d+$/.test(s) ? q.eq("id", Number(s)) : q.or(`username.ilike.%${s}%,first_name.ilike.%${s}%`);
-    const { data: rows, error, count } = await q;
-    if (error) throw new Error(error.message);
-    return {
-      total: count ?? 0,
-      pageSize,
-      rows: (rows ?? []).map((r) => ({ ...r, balance: Number(r.balance), referral_earned: Number(r.referral_earned) })),
-    };
+    const needle = data.search.trim().replace(/^@/, "").replace(/[%,()]/g, "");
+    const cond = !needle
+      ? sql``
+      : /^\d+$/.test(needle)
+        ? sql`and id = ${Number(needle)}`
+        : sql`and (username ilike ${`%${needle}%`} or first_name ilike ${`%${needle}%`})`;
+
+    const [total, rows] = await Promise.all([
+      countOf(sql`select count(*)::float8 as n from public.tg_users where true ${cond}`),
+      sql<TgUser[]>`
+        select ${USER_COLS()} from public.tg_users
+        where true ${cond}
+        order by created_at desc
+        limit ${pageSize} offset ${data.page * pageSize}`,
+    ]);
+    return { total, pageSize, rows };
   });
 
 export const adminAdjustBalance = createServerFn({ method: "POST" })
@@ -214,31 +253,31 @@ export const adminAdjustBalance = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     if (data.delta === 0) throw new Error("invalid_amount");
-    const { data: bal, error } = await db.rpc("adjust_balance", {
-      p_user_id: data.userId,
-      p_delta: data.delta,
-      p_note: data.note || "Admin",
-    });
-    if (error) throw new Error(error.message);
-    return { balance: Number(bal) };
+    const rows = await sql<{ v: number | string }[]>`
+      select adjust_balance(${data.userId}, ${data.delta}, ${data.note || "Admin"}) as v`;
+    const bal = rows[0];
+    if (!bal) throw new Error("user_not_found");
+    return { balance: Number(bal.v) };
   });
 
 export const adminSetBlocked = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ userId: z.number().int(), blocked: z.boolean() }).parse(d))
   .handler(async ({ data }) => {
     await requireAdmin();
-    const { error } = await db.from("tg_users").update({ is_blocked: data.blocked }).eq("id", data.userId);
-    if (error) throw new Error(error.message);
+    await sql`update public.tg_users set is_blocked = ${data.blocked} where id = ${data.userId}`;
     return { ok: true };
   });
 
 // ---------- Bookmakers ----------
 export const adminListBookmakers = createServerFn({ method: "POST" }).handler(async () => {
   await requireAdmin();
-  const { data, error } = await db.from("bookmakers").select("*").order("sort_order");
-  if (error) throw new Error(error.message);
-  const logos = await signedUrls("media", (data ?? []).map((b) => b.logo_url ?? "").filter(Boolean), 60 * 60);
-  return (data ?? []).map((b) => ({
+  const rows = await sql<Bookmaker[]>`select ${BOOKMAKER_COLS()} from public.bookmakers order by sort_order`;
+  const logos = await signedUrls(
+    "media",
+    rows.map((b) => b.logo_url ?? "").filter(Boolean),
+    60 * 60,
+  );
+  return rows.map((b) => ({
     ...b,
     deposit_fee_percent: Number(b.deposit_fee_percent),
     withdraw_fee_percent: Number(b.withdraw_fee_percent),
@@ -268,8 +307,25 @@ export const adminSaveBookmaker = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     if (data.min_amount > data.max_amount) throw new Error("min_gt_max");
-    const { error } = await db.from("bookmakers").upsert(data, { onConflict: "id" });
-    if (error) throw new Error(error.message);
+    await sql`insert into public.bookmakers
+        (id, name, logo_url, deposit_enabled, withdraw_enabled, deposit_fee_percent, withdraw_fee_percent,
+         address, min_amount, max_amount, sort_order, is_active)
+      values
+        (${data.id}, ${data.name}, ${data.logo_url}, ${data.deposit_enabled}, ${data.withdraw_enabled},
+         ${data.deposit_fee_percent}, ${data.withdraw_fee_percent}, ${data.address}, ${data.min_amount},
+         ${data.max_amount}, ${data.sort_order}, ${data.is_active})
+      on conflict (id) do update set
+        name = excluded.name,
+        logo_url = excluded.logo_url,
+        deposit_enabled = excluded.deposit_enabled,
+        withdraw_enabled = excluded.withdraw_enabled,
+        deposit_fee_percent = excluded.deposit_fee_percent,
+        withdraw_fee_percent = excluded.withdraw_fee_percent,
+        address = excluded.address,
+        min_amount = excluded.min_amount,
+        max_amount = excluded.max_amount,
+        sort_order = excluded.sort_order,
+        is_active = excluded.is_active`;
     return { ok: true };
   });
 
@@ -277,8 +333,7 @@ export const adminDeleteBookmaker = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ id: z.string().max(40) }).parse(d))
   .handler(async ({ data }) => {
     await requireAdmin();
-    const { error } = await db.from("bookmakers").delete().eq("id", data.id);
-    if (error) throw new Error(error.message);
+    await sql`delete from public.bookmakers where id = ${data.id}`;
     return { ok: true };
   });
 
@@ -295,9 +350,10 @@ export const adminMediaUploadUrl = createServerFn({ method: "POST" })
 // ---------- Videos ----------
 export const adminListVideos = createServerFn({ method: "POST" }).handler(async () => {
   await requireAdmin();
-  const { data } = await db.from("videos").select("*");
+  const rows = await sql<{ slot: string; storage_path: string | null; updated_at: string }[]>`
+    select slot, storage_path, ${ts("updated_at")} as updated_at from public.videos`;
   const out: Record<string, { url: string | null; updated_at: string }> = {};
-  for (const v of data ?? []) {
+  for (const v of rows) {
     out[v.slot] = { url: await signedUrl("media", v.storage_path, 60 * 60), updated_at: v.updated_at };
   }
   return out;
@@ -308,17 +364,22 @@ export const adminSaveVideo = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     if (!VIDEO_SLOT_IDS.includes(data.slot)) throw new Error("unknown_slot");
-    const { data: old } = await db.from("videos").select("storage_path").eq("slot", data.slot).maybeSingle();
+    const old = await maybeOne(
+      sql<{ storage_path: string | null }[]>`select storage_path from public.videos where slot = ${data.slot}`,
+    );
     if (data.path === null) {
-      await db.from("videos").delete().eq("slot", data.slot);
+      await sql`delete from public.videos where slot = ${data.slot}`;
     } else {
       if (!data.path.startsWith("videos/")) throw new Error("invalid_path");
-      const { error } = await db
-        .from("videos")
-        .upsert({ slot: data.slot, storage_path: data.path, tg_file_id: null, url: null, updated_at: new Date().toISOString() }, { onConflict: "slot" });
-      if (error) throw new Error(error.message);
+      await sql`insert into public.videos (slot, storage_path, tg_file_id, url, updated_at)
+        values (${data.slot}, ${data.path}, null, null, now())
+        on conflict (slot) do update set
+          storage_path = excluded.storage_path,
+          tg_file_id = null,
+          url = null,
+          updated_at = now()`;
     }
-    if (old?.storage_path && old.storage_path !== data.path) await db.storage.from("media").remove([old.storage_path]);
+    if (old?.storage_path && old.storage_path !== data.path) await removeMedia("media", old.storage_path);
     return { ok: true };
   });
 
@@ -329,9 +390,7 @@ export const adminGetSettings = createServerFn({ method: "POST" }).handler(async
 });
 
 export const adminSaveSettings = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
-    z.record(z.string(), z.string().max(2000)).parse(d),
-  )
+  .inputValidator((d) => z.record(z.string(), z.string().max(2000)).parse(d))
   .handler(async ({ data }) => {
     await requireAdmin();
     const clean: Record<string, string> = {};

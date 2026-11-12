@@ -1,4 +1,4 @@
-import { db } from "./db.server";
+import { maybeOne, sql } from "./db.server";
 import { getSettings } from "./settings.server";
 import { escapeHtml, telegramMode, tg } from "./telegram.server";
 import { formatSom, maskCard } from "@/lib/format";
@@ -38,8 +38,8 @@ const TYPE_RU: Record<string, string> = {
 
 async function bkName(id: string | null) {
   if (!id) return "";
-  const { data } = await db.from("bookmakers").select("name").eq("id", id).maybeSingle();
-  return data?.name ?? id;
+  const rows = await sql<{ name: string }[]>`select name from public.bookmakers where id = ${id}`;
+  return rows[0]?.name ?? id;
 }
 
 // New request → message to every admin chat id from settings.
@@ -49,7 +49,10 @@ export async function notifyAdminsNewRequest(tx: Tx) {
     const s = await getSettings();
     const ids = s.admin_chat_id.split(/[,\s]+/).filter(Boolean);
     if (!ids.length) return;
-    const { data: u } = await db.from("tg_users").select("username,first_name").eq("id", tx.user_id).maybeSingle();
+    const u = await maybeOne(
+      sql<{ username: string | null; first_name: string | null }[]>`
+        select username, first_name from public.tg_users where id = ${tx.user_id}`,
+    );
     const lines = [
       `🆕 <b>Yangi so'rov #${tx.number}</b>`,
       TYPE_UZ[tx.type] ?? tx.type,
@@ -81,7 +84,10 @@ export async function notifyAdminsNewRequest(tx: Tx) {
 export async function notifyUserStatus(tx: Tx) {
   if (telegramMode() === "none") return;
   try {
-    const { data: u } = await db.from("tg_users").select("lang,balance").eq("id", tx.user_id).maybeSingle();
+    const u = await maybeOne(
+      sql<{ lang: string; balance: number }[]>`
+        select lang, balance::float8 as balance from public.tg_users where id = ${tx.user_id}`,
+    );
     const ru = u?.lang === "ru";
     const title = (ru ? TYPE_RU : TYPE_UZ)[tx.type] ?? tx.type;
     const ok = tx.status === "approved";

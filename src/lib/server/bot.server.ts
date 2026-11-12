@@ -1,5 +1,5 @@
 // Telegram bot conversation logic (chat side). Money operations happen in the WALLET mini app.
-import { db } from "./db.server";
+import { maybeOne, sql, ts } from "./db.server";
 import { getSettings, type Settings } from "./settings.server";
 import { escapeHtml, tg } from "./telegram.server";
 import { countReferrals, listReferrals, upsertTgUser, type TgFrom } from "./users.server";
@@ -122,7 +122,10 @@ function supportUrl(s: Settings) {
 }
 
 async function sendSlotVideo(chatId: number, slot: string, caption: string, replyMarkup?: unknown) {
-  const { data: v } = await db.from("videos").select("*").eq("slot", slot).maybeSingle();
+  const v = await maybeOne(
+    sql<{ storage_path: string | null; tg_file_id: string | null }[]>`
+      select storage_path, tg_file_id from public.videos where slot = ${slot}`,
+  );
   if (v?.storage_path || v?.tg_file_id) {
     try {
       const source = v.tg_file_id ?? (await signedUrl("media", v.storage_path, 60 * 60));
@@ -136,7 +139,8 @@ async function sendSlotVideo(chatId: number, slot: string, caption: string, repl
           ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
         });
         const fileId = msg?.video?.file_id ?? msg?.document?.file_id;
-        if (fileId && fileId !== v.tg_file_id) await db.from("videos").update({ tg_file_id: fileId }).eq("slot", slot);
+        if (fileId && fileId !== v.tg_file_id)
+          await sql`update public.videos set tg_file_id = ${fileId} where slot = ${slot}`;
         return;
       }
     } catch (e) {
@@ -193,7 +197,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     await tg("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => undefined);
     if (data.startsWith("lang:")) {
       const l: L = data === "lang:ru" ? "ru" : "uz";
-      await db.from("tg_users").update({ lang: l, lang_chosen: true }).eq("id", user.id);
+      await sql`update public.tg_users set lang = ${l}, lang_chosen = true where id = ${user.id}`;
       if (cq.message?.message_id)
         await tg("deleteMessage", { chat_id: chatId, message_id: cq.message.message_id }).catch(() => undefined);
       await sendWelcome(chatId, l, s);
@@ -248,13 +252,9 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   if (!action) return sendMainMenu(chatId, l);
 
   if (action === "deposit") {
-    const { data: bks } = await db
-      .from("bookmakers")
-      .select("id,name")
-      .eq("is_active", true)
-      .eq("deposit_enabled", true)
-      .order("sort_order");
-    if (!bks?.length) {
+    const bks = await sql<{ id: string; name: string }[]>`
+      select id, name from public.bookmakers where is_active and deposit_enabled order by sort_order`;
+    if (!bks.length) {
       await tg("sendMessage", { chat_id: chatId, text: t.noBk });
       return;
     }
@@ -276,13 +276,15 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   }
 
   if (action === "history") {
-    const { data: txs } = await db
-      .from("transactions")
-      .select("number,type,status,amount,created_at")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(10);
-    if (!txs?.length) {
+    const txs = await sql<
+      { number: number; type: string; status: string; amount: number; created_at: string }[]
+    >`
+      select number::float8 as number, type, status, amount::float8 as amount, ${ts("created_at")} as created_at
+      from public.transactions
+      where user_id = ${user.id}
+      order by created_at desc
+      limit 10`;
+    if (!txs.length) {
       await tg("sendMessage", {
         chat_id: chatId,
         text: t.historyTitle,
@@ -326,9 +328,21 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   }
 
   if (action === "rates") {
-    const { data: bks } = await db.from("bookmakers").select("*").eq("is_active", true).order("sort_order");
-    const dep = (bks ?? []).filter((b) => b.deposit_enabled).map((b) => `🇺🇿 ${b.name} | ⚡: ${Number(b.deposit_fee_percent)} %`);
-    const wd = (bks ?? []).filter((b) => b.withdraw_enabled).map((b) => `🇺🇿 ${b.name} | ⚡: ${Number(b.withdraw_fee_percent)} %`);
+    const bks = await sql<
+      {
+        name: string;
+        deposit_enabled: boolean;
+        withdraw_enabled: boolean;
+        deposit_fee_percent: number;
+        withdraw_fee_percent: number;
+      }[]
+    >`
+      select name, deposit_enabled, withdraw_enabled,
+        deposit_fee_percent::float8 as deposit_fee_percent,
+        withdraw_fee_percent::float8 as withdraw_fee_percent
+      from public.bookmakers where is_active order by sort_order`;
+    const dep = bks.filter((b) => b.deposit_enabled).map((b) => `🇺🇿 ${b.name} | ⚡: ${Number(b.deposit_fee_percent)} %`);
+    const wd = bks.filter((b) => b.withdraw_enabled).map((b) => `🇺🇿 ${b.name} | ⚡: ${Number(b.withdraw_fee_percent)} %`);
     await tg("sendMessage", {
       chat_id: chatId,
       text: `${t.ratesDeposit}\n\n${dep.join("\n") || "—"}\n\n${t.ratesWithdraw}\n\n${wd.join("\n") || "—"}`,

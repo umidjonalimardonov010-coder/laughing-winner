@@ -1,4 +1,4 @@
-import { db } from "./db.server";
+import { sql } from "./db.server";
 
 export const SETTING_KEYS = [
   "brand_name",
@@ -20,10 +20,9 @@ export type SettingKey = (typeof SETTING_KEYS)[number];
 export type Settings = Record<SettingKey, string>;
 
 export async function getSettings(): Promise<Settings> {
-  const { data, error } = await db.from("app_settings").select("key,value");
-  if (error) throw new Error(error.message);
+  const rows = await sql<{ key: string; value: string }[]>`select key, value from public.app_settings`;
   const out = Object.fromEntries(SETTING_KEYS.map((k) => [k, ""])) as Settings;
-  for (const row of data ?? []) {
+  for (const row of rows) {
     if ((SETTING_KEYS as readonly string[]).includes(row.key)) out[row.key as SettingKey] = row.value;
   }
   return out;
@@ -32,10 +31,15 @@ export async function getSettings(): Promise<Settings> {
 export async function saveSettings(values: Partial<Settings>) {
   const rows = Object.entries(values)
     .filter(([k, v]) => (SETTING_KEYS as readonly string[]).includes(k) && typeof v === "string")
-    .map(([key, value]) => ({ key, value: value as string, updated_at: new Date().toISOString() }));
+    .map(([key, value]) => ({ key, value: value as string }));
   if (!rows.length) return;
-  const { error } = await db.from("app_settings").upsert(rows, { onConflict: "key" });
-  if (error) throw new Error(error.message);
+  await sql.begin(async (tx) => {
+    for (const { key, value } of rows) {
+      await tx`insert into public.app_settings (key, value, updated_at)
+        values (${key}, ${value}, now())
+        on conflict (key) do update set value = excluded.value, updated_at = now()`;
+    }
+  });
 }
 
 export function num(v: string | undefined, fallback: number): number {

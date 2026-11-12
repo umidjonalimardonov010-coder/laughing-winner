@@ -15,4 +15,7 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Railway runs the image with plain Node, so build the node-server target
+  // instead of the Cloudflare default the package would otherwise pick.
+  nitro: { preset: "node-server" },
 });

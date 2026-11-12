@@ -34,3 +34,5 @@ use the editor.
 - Railway uses its own database set up from `railway/setup.sql`; regenerate that file from `drizzle/migrations/*.sql` (plus storage bucket inserts) whenever a migration is added — because Lovable Cloud's service key is not available outside Lovable.
 - All database access goes through `src/lib/server/db.server.ts` after verifying the caller (Telegram initData or admin session); tables have RLS on with no public policies — so the database is never reachable from the browser.
 - Telegram calls use TELEGRAM_BOT_TOKEN directly when set, else the Lovable connector gateway — so the same code runs on Railway and in the preview.
+- Code is mirrored to GitHub `umidjonalimardonov010-coder/laughing-winner` by `.lovable/push_github.py` (GitHub connector, full snapshot commit); re-run it after changes — because that repo is not Lovable Git sync.
+- Browser uploads use the server-made signed URL (`src/lib/upload.ts`), never the browser storage client — so uploads hit the same storage as the server on Railway.

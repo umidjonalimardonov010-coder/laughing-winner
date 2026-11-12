@@ -8,4 +8,4 @@
 - [ ] Telegram bot: on Railway via TELEGRAM_BOT_TOKEN + "Botni ulash" — waiting for user's deploy
 - [ ] Bookmaker API (ID check, auto deposit/withdraw) — waiting for user to provide API details
 - [x] Railway: Dockerfile, start script, own-database setup SQL, RAILWAY.md guide (user deploys)
-- [ ] Put code on GitHub — waiting for user to connect Git sync in Project settings (agent cannot push)
+- [x] Put code on GitHub (laughing-winner repo, pushed via GitHub connector)

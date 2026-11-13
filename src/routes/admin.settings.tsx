@@ -330,7 +330,7 @@ function CashdeskPanel() {
               className={inputCls}
             />
             <button
-              disabled={!!busy || !d?.configured}
+              disabled={!!busy}
               onClick={async () => {
                 setBusy("test");
                 try {
@@ -345,6 +345,20 @@ function CashdeskPanel() {
             >
               {busy === "test" ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />} Tekshirish
             </button>
+            {test?.serverIp && (
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-secondary px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Server IP (Linebet ruxsat berishi kerak):</span>
+                <button
+                  className="font-mono font-semibold text-primary"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(test.serverIp ?? "");
+                    toast.success("IP nusxalandi");
+                  }}
+                >
+                  {test.serverIp}
+                </button>
+              </div>
+            )}
             {test?.configured && (
               <div className="space-y-1 text-sm">
                 {test.balance.ok ? (
@@ -353,7 +367,10 @@ function CashdeskPanel() {
                     {test.balance.limit ? ` · Limit: ${test.balance.limit.toLocaleString("ru-RU")}` : ""}
                   </div>
                 ) : (
-                  <div className="text-destructive">❌ Kassa javobi: {test.balance.message}</div>
+                  <div className="space-y-1">
+                    <div className="text-destructive">❌ Kassa javobi: {test.balance.message}</div>
+                    {test.balance.hint && <div className="text-foreground">{test.balance.hint}</div>}
+                  </div>
                 )}
                 {test.player !== undefined &&
                   (test.player === null ? (

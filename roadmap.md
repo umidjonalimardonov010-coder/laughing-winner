@@ -12,3 +12,6 @@
 - [x] Telegram admin: 8787603995 manages everything — /admin opens the panel signed in, ✅/❌ under each alert, receipt photo, /karta sets the top-up card
 - [ ] Top-up card number — owner enters it with /karta (wallet top-up is blocked until then)
 - [x] Referral: real invite link (https://t.me/<bot>?start=<id>) + share button; bot name fetched from Telegram if not saved
+- [x] LINEBET design: green/gold theme, new background, spinning coins, pro buttons, new pictures
+- [x] Linebet API check explains 401 (wrong keys) / 403 (server IP not allowed) and shows server IP
+- [ ] Linebet API live — waiting for: cashier password in admin panel + Linebet allowing Railway's server IP

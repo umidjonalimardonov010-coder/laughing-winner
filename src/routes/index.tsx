@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowDownToLine, ArrowUpFromLine, Clock, ShieldCheck, Users, Wallet } from "lucide-react";
-import marble from "@/assets/marble-bg.jpg";
+import marble from "@/assets/linebet-bg.jpg";
 import { publicInfo } from "@/lib/public.functions";
 
 export const Route = createFileRoute("/")({

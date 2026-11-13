@@ -1,26 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import marble from "@/assets/marble-bg.jpg";
+import bg from "@/assets/linebet-bg.jpg";
 import { translate, type Lang, type TKey } from "@/lib/i18n";
 import { walletBootstrap, walletSetLang } from "@/lib/wallet.functions";
 import { Ctx, type Bookmaker, type WalletCtx } from "./context";
 import { loadTelegram, type TgWebApp } from "./telegram";
 import { Help, History, Home, NavBar, NewTab, Profile, Services, Videos } from "./screens";
+import { Coin, CoinField, Wordmark } from "./ui";
 import { BookmakerSheet, CardWithdrawSheet, LangSheet, ReferralsSheet, TopupSheet, VideoModal } from "./sheets";
 
 type Tab = "home" | "services" | "history" | "new";
 type Page = "profile" | "help" | "videos" | null;
 type Sheet = "topup" | "withdraw" | "refs" | "lang" | null;
 
-function Splash({ brand }: { brand?: string }) {
+function Splash() {
   return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center gap-8 bg-[radial-gradient(circle_at_50%_45%,oklch(0.35_0.08_160),var(--background)_65%)]">
-      <div className="flex size-32 items-center justify-center rounded-[2rem] bg-foreground font-display text-lg font-extrabold italic leading-tight text-background">
-        <span className="px-3 text-center">{brand ?? "KASSA 24/7"}</span>
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-6 overflow-hidden bg-background">
+      <img src={bg} alt="" width={864} height={1536} className="absolute inset-0 h-full w-full object-cover opacity-70" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,transparent,var(--background)_75%)]" />
+      <div className="relative">
+        <div className="animate-glow absolute inset-0 -m-6 rounded-full bg-primary/30 blur-2xl" />
+        <Coin size={120} spin={2.4} />
       </div>
-      <div className="flex gap-3">
+      <div className="relative text-center">
+        <Wordmark className="text-4xl" />
+        <div className="mt-1 text-xs font-semibold uppercase tracking-[0.4em] text-muted-foreground">Kassa 24/7</div>
+      </div>
+      <div className="relative flex gap-2.5">
         {[0, 1, 2].map((i) => (
-          <span key={i} className="animate-dot size-3 rounded-full bg-primary" style={{ animationDelay: `${i * 0.15}s` }} />
+          <span key={i} className="animate-dot size-2.5 rounded-full bg-primary" style={{ animationDelay: `${i * 0.15}s` }} />
         ))}
       </div>
     </div>
@@ -41,9 +49,9 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
       if (w) {
         w.ready();
         w.expand();
-        w.setHeaderColor?.("#173329");
-        w.setBackgroundColor?.("#12241d");
-        w.setBottomBarColor?.("#12241d");
+        w.setHeaderColor?.("#050d07");
+        w.setBackgroundColor?.("#050d07");
+        w.setBottomBarColor?.("#050d07");
         w.disableVerticalSwipes?.();
       }
       setTg(w);
@@ -133,17 +141,18 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
     <Ctx.Provider value={ctx}>
       <div className="relative min-h-dvh">
         <img
-          src={marble}
+          src={bg}
           alt=""
           width={864}
           height={1536}
-          className="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover"
+          className="pointer-events-none fixed inset-0 -z-20 h-full w-full object-cover"
         />
-        <div className="pointer-events-none fixed inset-0 -z-10 bg-background/25" />
+        <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-background/30 via-background/45 to-background/80" />
+        <CoinField />
         {ctx.boot.demo && (
           <div className="bg-gold/90 px-4 py-1.5 text-center text-xs font-medium text-gold-foreground">{t("demoBanner")}</div>
         )}
-        <main className="mx-auto max-w-md px-4 pb-32 pt-5">
+        <main key={page ?? tab} className="animate-rise mx-auto max-w-md px-4 pb-32 pt-5">
           {page === "profile" ? (
             <Profile onReferrals={() => setSheet("refs")} onLang={() => setSheet("lang")} onHelp={() => setPage("help")} />
           ) : page === "help" ? (

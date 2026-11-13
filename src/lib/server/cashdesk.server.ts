@@ -85,11 +85,29 @@ export type CashdeskResult =
   | { kind: "rejected"; message: string }
   | { kind: "unknown"; message: string };
 
-type ApiBody = { Summa?: number | string; summa?: number | string; Success?: boolean; success?: boolean; Message?: string; message?: string };
+type ApiBody = {
+  Summa?: number | string;
+  summa?: number | string;
+  Success?: boolean;
+  success?: boolean;
+  Message?: string;
+  message?: string;
+  title?: string;
+};
+
+/** Plain-language reason for a failed cashdesk answer, shown in the admin panel. Pure, unit-tested. */
+export function cashdeskErrorHint(status: number): string {
+  if (status === 401) return "Kalitlar mos kelmadi: Kassa ID, kassir paroli yoki hash noto'g'ri.";
+  if (status === 403) return "Linebet bu serverning IP manzilini ruxsat etmagan. Server IP manzilini Linebet menejeringizga yuborib, ruxsat so'rang.";
+  if (status === 404) return "Kassa yoki manzil topilmadi: Kassa ID yoki API manzilini tekshiring.";
+  if (status === 0) return "Linebet serveriga ulanib bo'lmadi (internet yoki API manzili).";
+  if (status >= 500) return "Linebet serverida vaqtinchalik xato. Birozdan keyin qayta urinib ko'ring.";
+  return "";
+}
 
 export function classifyResponse(status: number, body: ApiBody | null): CashdeskResult {
   const success = body?.Success ?? body?.success;
-  const message = String(body?.Message ?? body?.message ?? "").slice(0, 200);
+  const message = String(body?.Message ?? body?.message ?? body?.title ?? "").slice(0, 200);
   const summa = Math.abs(Number(body?.Summa ?? body?.summa ?? 0)) || 0;
   if (status >= 200 && status < 300 && success === true) return { kind: "ok", summa, message };
   if (status >= 200 && status < 500 && success === false) return { kind: "rejected", message: message || `HTTP ${status}` };
@@ -160,7 +178,9 @@ export async function cashdeskPayout(c: CashdeskCreds, userId: string, code: str
   }
 }
 
-export async function cashdeskBalance(c: CashdeskCreds): Promise<{ ok: true; balance: number; limit: number } | { ok: false; message: string }> {
+export async function cashdeskBalance(
+  c: CashdeskCreds,
+): Promise<{ ok: true; balance: number; limit: number } | { ok: false; status: number; message: string; hint: string }> {
   try {
     const dt = cashdeskDt();
     const q = `Cashdesk/${encodeURIComponent(c.cashdeskId)}/Balance?confirm=${md5(`${c.cashdeskId}:${c.hash}`)}&dt=${encodeURIComponent(dt)}`;
@@ -170,8 +190,21 @@ export async function cashdeskBalance(c: CashdeskCreds): Promise<{ ok: true; bal
     if (r.status >= 200 && r.status < 300 && bal !== undefined) {
       return { ok: true, balance: Number(bal) || 0, limit: Number(j["Limit"] ?? j["limit"] ?? 0) || 0 };
     }
-    return { ok: false, message: String(j["Message"] ?? j["message"] ?? `HTTP ${r.status}`).slice(0, 200) };
+    const message = String(j["Message"] ?? j["message"] ?? j["title"] ?? "").slice(0, 200);
+    return { ok: false, status: r.status, message: `HTTP ${r.status}${message ? ` · ${message}` : ""}`, hint: cashdeskErrorHint(r.status) };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message.slice(0, 200) : "network" };
+    return { ok: false, status: 0, message: e instanceof Error ? e.message.slice(0, 200) : "network", hint: cashdeskErrorHint(0) };
+  }
+}
+
+/** This server's public outbound IP — the address Linebet has to allow. */
+export async function serverPublicIp(): Promise<string | null> {
+  try {
+    const r = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(8_000) });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { ip?: string };
+    return j.ip ?? null;
+  } catch {
+    return null;
   }
 }

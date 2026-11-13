@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { cashdeskCreds, cashdeskDt, classifyResponse, confirmFor, depositSumma, mergeCredSources, signBalance, signDeposit, signPayout } from "./cashdesk.server";
+import { cashdeskCreds, cashdeskErrorHint, cashdeskDt, classifyResponse, confirmFor, depositSumma, mergeCredSources, signBalance, signDeposit, signPayout } from "./cashdesk.server";
 
 const md5 = (s: string) => createHash("md5").update(s).digest("hex");
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -49,5 +49,12 @@ describe("cashdesk", () => {
     expect(signBalance(dt, c)).toBe(
       sha256(sha256(`hash=h4sh&cashierpass=pass&dt=${dt}`) + md5(`dt=${dt}&cashierpass=pass&cashdeskid=1177830`)),
     );
+  });
+
+  it("explains a blocked server IP (403) and wrong keys (401) differently", () => {
+    expect(cashdeskErrorHint(403)).toContain("IP");
+    expect(cashdeskErrorHint(401)).toContain("noto'g'ri");
+    expect(cashdeskErrorHint(403)).not.toBe(cashdeskErrorHint(401));
+    expect(classifyResponse(401, { title: "Unauthorized" })).toMatchObject({ kind: "rejected", message: "Unauthorized" });
   });
 });

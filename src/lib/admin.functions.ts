@@ -15,7 +15,7 @@ import { VIDEO_SLOT_IDS } from "./videos";
 import { verifyInitData } from "./server/initdata.server";
 import { parseAdminIds } from "./server/admins";
 import { approveRequest, isTelegramAdmin, rejectRequest } from "./server/requests.server";
-import { cashdeskBalance, cashdeskFindUser } from "./server/cashdesk.server";
+import { cashdeskBalance, cashdeskFindUser, serverPublicIp } from "./server/cashdesk.server";
 import { loadCashdeskCreds, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
@@ -531,8 +531,8 @@ export const adminTestCashdesk = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     const creds = await loadCashdeskCreds("linebet");
-    if (!creds) return { configured: false as const };
-    const balance = await cashdeskBalance(creds);
-    const player = data.playerId ? await cashdeskFindUser(creds, data.playerId) : undefined;
-    return { configured: true as const, balance, player: player === undefined ? undefined : player };
+    if (!creds) return { configured: false as const, serverIp: await serverPublicIp() };
+    const [balance, serverIp] = await Promise.all([cashdeskBalance(creds), serverPublicIp()]);
+    const player = data.playerId && balance.ok ? await cashdeskFindUser(creds, data.playerId) : undefined;
+    return { configured: true as const, balance, serverIp, player: player === undefined ? undefined : player };
   });

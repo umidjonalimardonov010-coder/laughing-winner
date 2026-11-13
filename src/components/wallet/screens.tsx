@@ -32,7 +32,9 @@ import { VIDEO_SLOTS } from "@/lib/videos";
 import { walletHistory } from "@/lib/wallet.functions";
 import { referralLink } from "@/lib/referral";
 import { useWallet, type Bookmaker } from "./context";
-import { BkLogo, Glass, IconTile } from "./ui";
+import heroWallet from "@/assets/hero-wallet.webp";
+import banner from "@/assets/linebet-banner.jpg";
+import { BkLogo, Coin, Glass, IconTile, Wordmark } from "./ui";
 
 
 export function Home({
@@ -55,39 +57,45 @@ export function Home({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-foreground font-display text-[10px] font-extrabold italic leading-none text-background">
-          {(settings.brand_name.split(" ")[0] ?? "").slice(0, 6).toUpperCase()}
+        <div className="relative flex h-12 items-center gap-2 rounded-2xl border border-primary/30 bg-background/70 px-3 shadow-[var(--shadow-glow)] backdrop-blur">
+          <Coin size={26} spin={3} />
+          <Wordmark className="text-lg" />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-display text-lg font-bold">{user.first_name || user.username || "—"}</div>
-          {user.username && <div className="truncate text-sm text-muted-foreground">@{user.username}</div>}
+        <div className="min-w-0 flex-1 text-right">
+          <div className="truncate font-display text-base font-bold">{user.first_name || user.username || "—"}</div>
+          {user.username && <div className="truncate text-xs text-muted-foreground">@{user.username}</div>}
         </div>
-        <button onClick={onProfile} className="glass flex size-12 items-center justify-center rounded-2xl" aria-label="profile">
+        <button onClick={onProfile} className="btn-ghost-pro flex size-12 items-center justify-center rounded-2xl" aria-label="profile">
           <User className="size-5" />
         </button>
       </div>
 
-      <Glass className="p-6">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t("balance")}</div>
-        <div className="mt-2 flex items-baseline gap-2">
-          <span className="tabular font-display text-5xl font-bold">{formatSom(user.balance)}</span>
-          <span className="text-xl text-muted-foreground">{t("som")}</span>
+      <div className="relative isolate overflow-hidden rounded-[2rem] border border-primary/30 p-6 shadow-[0_24px_60px_-20px_oklch(0.74_0.22_142/0.55)]">
+        <div className="absolute inset-0 -z-10 bg-[radial-gradient(120%_100%_at_100%_0%,oklch(0.6_0.2_142/0.55),transparent_60%),linear-gradient(160deg,oklch(0.26_0.07_146),oklch(0.12_0.03_150))]" />
+        <div className="absolute inset-x-0 top-0 -z-10 h-px bg-gradient-to-r from-transparent via-primary to-transparent" />
+        <img
+          src={heroWallet}
+          alt=""
+          width={480}
+          height={480}
+          className="animate-hero pointer-events-none absolute -right-6 -top-4 size-40 object-contain drop-shadow-[0_12px_24px_oklch(0_0_0/0.5)]"
+        />
+        <div className="relative max-w-[60%]">
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">{t("balance")}</div>
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-2">
+            <span className="tabular font-display text-4xl font-black drop-shadow-[0_2px_8px_oklch(0_0_0/0.5)]">{formatSom(user.balance)}</span>
+            <span className="text-lg font-semibold text-gold">{t("som")}</span>
+          </div>
         </div>
-        <div className="mt-6 grid grid-cols-2 gap-3">
-          <button
-            onClick={onTopup}
-            className="flex h-14 items-center justify-center gap-2 rounded-2xl bg-primary font-semibold text-primary-foreground shadow-[var(--shadow-glow)] active:scale-[0.98]"
-          >
-            <ArrowUpRight className="size-5" /> {t("topup")}
+        <div className="relative mt-8 grid grid-cols-2 gap-3">
+          <button onClick={onTopup} className="btn-pro flex h-14 items-center justify-center gap-2 rounded-2xl font-bold">
+            <ArrowUpRight className="size-5" strokeWidth={2.6} /> {t("topup")}
           </button>
-          <button
-            onClick={onWithdraw}
-            className="flex h-14 items-center justify-center gap-2 rounded-2xl border border-foreground/25 font-semibold active:scale-[0.98]"
-          >
-            <ArrowDownLeft className="size-5" /> {t("withdraw")}
+          <button onClick={onWithdraw} className="btn-gold flex h-14 items-center justify-center gap-2 rounded-2xl font-bold">
+            <ArrowDownLeft className="size-5" strokeWidth={2.6} /> {t("withdraw")}
           </button>
         </div>
-      </Glass>
+      </div>
 
       <Glass onClick={onVideos} className="flex items-center gap-4 p-4">
         <IconTile>
@@ -124,7 +132,7 @@ export function Home({
             haptic("success");
             toast.success(t("copied"));
           }}
-          className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground"
+          className="btn-pro flex size-14 shrink-0 items-center justify-center rounded-2xl"
         >
           <Copy className="size-5" />
         </button>
@@ -159,21 +167,32 @@ export function Services({ onOpen }: { onOpen: (bk: Bookmaker, mode: "deposit" |
         <span className="text-muted-foreground">{t("som")}</span>
       </Glass>
       {boot.bookmakers.map((bk) => (
-        <Glass key={bk.id} onClick={() => onOpen(bk, bk.deposit_enabled ? "deposit" : "withdraw")} className="flex items-center gap-4 p-4">
-          <BkLogo bk={bk} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-lg">🇺🇿 {bk.name} | ⚡</div>
-            <div className="mt-1.5 flex gap-2">
-              {bk.deposit_enabled && (
-                <span className="rounded-md border border-border bg-secondary/60 px-2 py-0.5 text-sm text-muted-foreground">{t("deposit")}</span>
-              )}
-              {bk.withdraw_enabled && (
-                <span className="rounded-md border border-gold/30 bg-gold/15 px-2 py-0.5 text-sm text-gold">{t("withdrawBk")}</span>
-              )}
+        <div key={bk.id} className="relative isolate overflow-hidden rounded-[1.75rem] border border-primary/25 shadow-[0_20px_50px_-24px_oklch(0.74_0.22_142/0.6)]">
+          <img src={banner} alt="" width={900} height={456} loading="lazy" className="absolute inset-0 -z-10 h-full w-full object-cover object-right" />
+          <div className="absolute inset-0 -z-10 bg-gradient-to-r from-background via-background/80 to-background/10" />
+          <button onClick={() => onOpen(bk, bk.deposit_enabled ? "deposit" : "withdraw")} className="flex w-full items-center gap-4 p-4 pb-3 text-left">
+            <BkLogo bk={bk} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-display text-xl font-black italic">{bk.name}</div>
+              <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-primary">
+                <span className="size-2 animate-pulse rounded-full bg-primary" /> 24/7 · ⚡ {t("deposit")} / {t("withdrawBk")}
+              </div>
             </div>
+            <ChevronRight className="size-5 text-muted-foreground" />
+          </button>
+          <div className="grid grid-cols-2 gap-2 px-4 pb-4">
+            {bk.deposit_enabled && (
+              <button onClick={() => onOpen(bk, "deposit")} className="btn-pro flex h-11 items-center justify-center gap-1.5 rounded-xl text-sm font-bold">
+                <ArrowUpRight className="size-4" strokeWidth={2.6} /> {t("deposit")}
+              </button>
+            )}
+            {bk.withdraw_enabled && (
+              <button onClick={() => onOpen(bk, "withdraw")} className="btn-gold flex h-11 items-center justify-center gap-1.5 rounded-xl text-sm font-bold">
+                <ArrowDownLeft className="size-4" strokeWidth={2.6} /> {t("withdrawBk")}
+              </button>
+            )}
           </div>
-          <ChevronRight className="size-5 text-muted-foreground" />
-        </Glass>
+        </div>
       ))}
     </div>
   );
@@ -189,9 +208,9 @@ export function History() {
   const bkName = (id: string | null) => boot.bookmakers.find((b) => b.id === id)?.name ?? id ?? "";
   const rows = (q.data ?? []).filter((r) => filter === "all" || txDirection(r.type as TxType, r.amount) === filter);
   const chips = [
-    { id: "all" as const, label: t("all"), icon: null, active: "bg-secondary text-foreground" },
-    { id: "in" as const, label: t("incomes"), icon: <ArrowDownCircle className="size-5" />, active: "bg-primary text-primary-foreground" },
-    { id: "out" as const, label: t("expenses"), icon: <ArrowUpCircle className="size-5" />, active: "bg-gold text-gold-foreground" },
+    { id: "all" as const, label: t("all"), icon: null, active: "btn-ghost-pro" },
+    { id: "in" as const, label: t("incomes"), icon: <ArrowDownCircle className="size-5" />, active: "btn-pro" },
+    { id: "out" as const, label: t("expenses"), icon: <ArrowUpCircle className="size-5" />, active: "btn-gold" },
   ];
   return (
     <div className="space-y-4">
@@ -364,7 +383,7 @@ export function Help({ onBack }: { onBack: () => void }) {
             </div>
             <button
               onClick={() => openLink(`https://t.me/${c.user}`)}
-              className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-lg font-semibold text-primary-foreground"
+              className="btn-pro flex h-14 w-full items-center justify-center gap-2 rounded-2xl text-lg font-bold"
             >
               {c.btn} <ExternalLink className="size-5" />
             </button>
@@ -427,14 +446,14 @@ export function NavBar({ tab, setTab }: { tab: string; setTab: (t: "home" | "ser
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      <div className="grid grid-cols-4 rounded-[1.75rem] border border-border bg-background/90 p-2 backdrop-blur-xl">
+      <div className="grid grid-cols-4 rounded-[1.75rem] border border-primary/20 bg-background/85 p-2 shadow-[0_-10px_40px_-12px_oklch(0.74_0.22_142/0.35)] backdrop-blur-xl">
         {items.map((it) => {
           const active = tab === it.id;
           const Icon = it.icon;
           return (
             <button key={it.id} onClick={() => setTab(it.id)} className="flex flex-col items-center gap-1 py-1">
-              <span className={cn("flex h-11 w-14 items-center justify-center rounded-2xl", active && "bg-primary/20 text-primary")}>
-                <Icon className={cn("size-6", active ? "text-primary" : "text-muted-foreground")} />
+              <span className={cn("flex h-11 w-14 items-center justify-center rounded-2xl transition", active && "btn-pro")}>
+                <Icon className={cn("size-6", active ? "text-primary-foreground" : "text-muted-foreground")} />
               </span>
               <span className={cn("text-xs", active ? "font-semibold text-primary" : "text-muted-foreground")}>{it.label}</span>
             </button>

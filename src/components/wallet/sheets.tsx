@@ -147,7 +147,7 @@ export function BookmakerSheet({
               <button
                 key={m}
                 onClick={() => setMode(m)}
-                className={cn("h-12 rounded-xl font-semibold", mode === m ? "bg-accent text-foreground" : "text-muted-foreground")}
+                className={cn("h-12 rounded-xl font-bold transition", mode === m ? (m === "deposit" ? "btn-pro" : "btn-gold") : "text-muted-foreground")}
               >
                 {m === "deposit" ? t("deposit") : t("withdrawBk")}
               </button>
@@ -186,7 +186,7 @@ export function BookmakerSheet({
               disabled={checking || !account}
               className={cn(
                 "flex h-14 min-w-28 items-center justify-center gap-1 rounded-2xl border border-border px-4 font-semibold",
-                checked ? "bg-primary/20 text-primary" : "bg-secondary/60 text-muted-foreground",
+                checked ? "border-primary/50 bg-primary/20 text-primary" : "btn-ghost-pro",
               )}
             >
               {checking ? <Loader2 className="size-5 animate-spin" /> : checked ? <><Check className="size-5" /> {t("checked")}</> : t("check")}

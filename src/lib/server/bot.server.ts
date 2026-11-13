@@ -1,11 +1,14 @@
 // Telegram bot conversation logic (chat side). Money operations happen in the WALLET mini app.
 import { ensureMigrations } from "./migrations.server";
 import { maybeOne, sql, ts } from "./db.server";
-import { getSettings, type Settings } from "./settings.server";
+import { getSettings, publicBase, saveSettings, type Settings } from "./settings.server";
+import { approveRequest, isTelegramAdmin, rejectRequest } from "./requests.server";
+import { cleanCardNumber } from "./admins";
+import { cashdeskCreds } from "./cashdesk.server";
 import { escapeHtml, tg } from "./telegram.server";
 import { countReferrals, listReferrals, upsertTgUser, type TgFrom } from "./users.server";
 import { signedUrl } from "./media.server";
-import { formatDateTime, formatSom } from "@/lib/format";
+import { formatDateTime, formatSom, maskCard } from "@/lib/format";
 
 type L = "uz" | "ru";
 
@@ -97,13 +100,16 @@ const TXT = {
   },
 };
 
-function mainKeyboard(l: L) {
+const ADMIN_BUTTON = "🛠 Admin panel";
+
+function mainKeyboard(l: L, admin = false) {
   const m = MENU[l];
   return {
     keyboard: [
       [{ text: m.deposit }, { text: m.withdraw }],
       [{ text: m.history }, { text: m.support }],
       [{ text: m.referral }, { text: m.rates }],
+      ...(admin ? [[{ text: ADMIN_BUTTON }]] : []),
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -158,16 +164,101 @@ async function sendSlotVideo(chatId: number, slot: string, caption: string, repl
 
 async function sendWelcome(chatId: number, l: L, s: Settings) {
   await tg("sendMessage", { chat_id: chatId, text: TXT[l].welcome(s.brand_name || "Kassa 24/7"), parse_mode: "HTML" });
-  await sendMainMenu(chatId, l);
+  await sendMainMenu(chatId, l, s);
 }
 
-async function sendMainMenu(chatId: number, l: L) {
+async function sendMainMenu(chatId: number, l: L, s?: Settings) {
+  const admin = chatId > 0 && (await isTelegramAdmin(chatId, s).catch(() => false));
   await tg("sendMessage", {
     chat_id: chatId,
     text: TXT[l].mainMenu,
     parse_mode: "HTML",
-    reply_markup: mainKeyboard(l),
+    reply_markup: mainKeyboard(l, admin),
   });
+}
+
+/** Web App links must be https; behind Railway's proxy the request origin can arrive as http. */
+function httpsBase(s: Settings, fallbackOrigin: string) {
+  return publicBase(s, fallbackOrigin).replace(/^http:\/\/(?!localhost|127\.0\.0\.1)/, "https://");
+}
+
+// Admin home in the chat: what needs attention + buttons that open the panel already signed in.
+async function sendAdminPanel(chatId: number, s: Settings, base: string) {
+  const pending = await sql<{ n: number }[]>`select count(*)::float8 as n from public.transactions where status = 'pending'`;
+  const lines = ["🛠 <b>Admin panel</b>", "", `⏳ Kutilayotgan so'rovlar: <b>${Number(pending[0]?.n ?? 0)}</b>`];
+  if (s.card_number) lines.push(`💳 To'ldirish kartasi: <code>${maskCard(s.card_number)}</code> ${escapeHtml(s.card_holder)}`);
+  else
+    lines.push(
+      "",
+      "⚠️ <b>To'ldirish kartasi kiritilmagan</b> — mijozlar hamyonni to'ldira olmaydi.",
+      "Kiritish: <code>/karta 8600123412341234 ISM FAMILIYA</code>",
+    );
+  if (!cashdeskCreds("linebet")) lines.push("", "⚠️ Linebet kassa kalitlari kiritilmagan — Linebet so'rovlarini qo'lda tasdiqlaysiz.");
+  lines.push("", "Barcha boshqaruv (so'rovlar, foydalanuvchilar, balans, bukmekerlar, videolar, sozlamalar) panelda:");
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: lines.join("\n"),
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🛠 Admin panelni ochish", web_app: { url: `${base}/admin` } }],
+        [
+          { text: "📥 So'rovlar", web_app: { url: `${base}/admin/requests` } },
+          { text: "⚙️ Sozlamalar", web_app: { url: `${base}/admin/settings` } },
+        ],
+      ],
+    },
+  });
+}
+
+// "/karta 8600 1234 5678 9012 ISM FAMILIYA" → saves the wallet top-up card.
+async function setCardFromChat(chatId: number, text: string) {
+  const rest = text.replace(/^\/karta(@\w+)?/i, "").trim();
+  const m = rest.match(/^([\d\s-]+)(.*)$/);
+  const card = m ? cleanCardNumber(m[1] ?? "") : null;
+  if (!card) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "Karta raqami 16 ta raqam bo'lishi kerak.\nMasalan: <code>/karta 8600123412341234 ISM FAMILIYA</code>",
+      parse_mode: "HTML",
+    });
+    return;
+  }
+  const holder = (m?.[2] ?? "").trim().slice(0, 100);
+  await saveSettings(holder ? { card_number: card, card_holder: holder } : { card_number: card });
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: `✅ To'ldirish kartasi saqlandi: <code>${maskCard(card)}</code> ${escapeHtml(holder)}\nEndi mijozlar hamyonni to'ldira oladi.`,
+    parse_mode: "HTML",
+  });
+}
+
+const TX_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ✅ / ❌ under a new-request alert.
+async function handleAdminDecision(cq: Update, s: Settings) {
+  const [, act, id] = String(cq.data).split(":");
+  const answer = (text: string, alert = false) =>
+    tg("answerCallbackQuery", { callback_query_id: cq.id, text, show_alert: alert }).catch(() => undefined);
+  if (!(await isTelegramAdmin(cq.from.id, s))) return answer("⛔ Ruxsat yo'q", true);
+  if (!id || !TX_ID.test(id) || (act !== "ok" && act !== "no")) return answer("Noto'g'ri tugma", true);
+  try {
+    const done = act === "ok" ? await approveRequest(id) : await rejectRequest(id);
+    const label = act === "ok" ? `✅ #${done.number} tasdiqlandi` : `❌ #${done.number} rad etildi`;
+    await answer(label);
+    if (cq.message?.message_id)
+      await tg("editMessageReplyMarkup", {
+        chat_id: cq.message.chat.id,
+        message_id: cq.message.message_id,
+        reply_markup: { inline_keyboard: [[{ text: label, callback_data: "noop" }]] },
+      }).catch(() => undefined);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("already_processed")) return answer("Bu so'rov allaqachon ko'rib chiqilgan", true);
+    if (msg.includes("insufficient")) return answer("Mijoz balansida pul yetarli emas", true);
+    console.error("admin decision failed", e);
+    return answer(`Xatolik: ${msg.slice(0, 150)}`, true);
+  }
 }
 
 async function sendLanguagePicker(chatId: number) {
@@ -187,15 +278,16 @@ type Update = any;
 export async function handleUpdate(update: Update, fallbackOrigin: string) {
   await ensureMigrations();
   const s = await getSettings();
-  const base = (s.public_url || fallbackOrigin).replace(/\/$/, "");
+  const base = httpsBase(s, fallbackOrigin);
   const walletUrl = `${base}/app`;
 
   if (update.callback_query) {
     const cq = update.callback_query;
     const from: TgFrom = cq.from;
     const chatId: number = cq.message?.chat?.id ?? from.id;
-    const { user } = await upsertTgUser(from);
     const data: string = cq.data ?? "";
+    if (data.startsWith("adm:")) return handleAdminDecision(cq, s);
+    const { user } = await upsertTgUser(from);
     await tg("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => undefined);
     if (data.startsWith("lang:")) {
       const l: L = data === "lang:ru" ? "ru" : "uz";
@@ -206,7 +298,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
       return;
     }
     const l: L = user.lang === "ru" ? "ru" : "uz";
-    if (data === "menu") return sendMainMenu(chatId, l);
+    if (data === "menu") return sendMainMenu(chatId, l, s);
     if (data === "refs") {
       const refs = await listReferrals(user.id);
       const text = refs.length
@@ -248,10 +340,17 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     return;
   }
   if (text === "/lang") return sendLanguagePicker(chatId);
-  if (text === "/menu") return sendMainMenu(chatId, l);
+  if (text === "/menu") return sendMainMenu(chatId, l, s);
+
+  const isAdminCmd = text === ADMIN_BUTTON || /^\/admin(@\w+)?$/i.test(text);
+  const isCardCmd = /^\/karta(@\w+)?(\s|$)/i.test(text);
+  if ((isAdminCmd || isCardCmd) && (await isTelegramAdmin(from.id, s))) {
+    if (isCardCmd) return setCardFromChat(chatId, text);
+    return sendAdminPanel(chatId, s, base);
+  }
 
   const action = matchMenu(text);
-  if (!action) return sendMainMenu(chatId, l);
+  if (!action) return sendMainMenu(chatId, l, s);
 
   if (action === "deposit") {
     const bks = await sql<{ id: string; name: string }[]>`

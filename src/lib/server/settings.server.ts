@@ -46,3 +46,10 @@ export function num(v: string | undefined, fallback: number): number {
   const n = Number(v);
   return Number.isFinite(n) && v !== "" ? n : fallback;
 }
+
+/** The site's public https address, for links that Telegram opens or downloads. */
+export function publicBase(s: Settings, fallback = ""): string {
+  const railway = process.env["RAILWAY_PUBLIC_DOMAIN"];
+  const base = s.public_url || process.env["PUBLIC_URL"] || (railway ? `https://${railway}` : "") || fallback;
+  return base.replace(/\/$/, "");
+}

@@ -47,6 +47,13 @@ Uchalasi ham yozilsa, Linebet'ga pul kiritish va chiqarish avtomatik bo'ladi:
 
 Boshqa bukmekerlar yashirilgan; admin panel → **Bukmekerlar** → "Ko'rinadi" tugmasi bilan qaytariladi (ular qo'lda ishlaydi).
 
+## 4.2 Telegram orqali admin
+- `admin_chat_id` sozlamasidagi Telegram ID'lar (birinchi ishga tushishda `8787603995` qo'shiladi) — to'liq admin.
+- Botda **🛠 Admin panel** tugmasi yoki `/admin` → panel Telegram ichida parolsiz ochiladi.
+- Yangi so'rov xabarida chek rasmi va **✅ Tasdiqlash / ❌ Rad etish** tugmalari bor.
+- `/karta 8600123412341234 ISM FAMILIYA` — hamyonni to'ldirish kartasini o'rnatadi.
+- Qo'shimcha adminlar: Sozlamalar → "Adminlarning Telegram ID raqamlari" yoki Railway'da `ADMIN_TELEGRAM_IDS`.
+
 ## 5. Deploy
 1. **Settings → Networking → Generate Domain** — https manzil chiqadi.
 2. GitHub repo ulangan bo'lsa, push qilganda o'zi quradi (Dockerfile).

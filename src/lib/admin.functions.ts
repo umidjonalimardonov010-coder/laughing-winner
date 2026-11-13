@@ -4,15 +4,17 @@ import { getRequestUrl } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { countOf, maybeOne, sql, ts } from "./server/db.server";
 import { adminConfigured, adminSession, isAdmin, passwordMatches, requireAdmin } from "./server/admin-session.server";
-import { getSettings, num, saveSettings, SETTING_KEYS } from "./server/settings.server";
+import { getSettings, saveSettings, SETTING_KEYS } from "./server/settings.server";
 import { removeMedia, signedUploadUrl, signedUrl, signedUrls } from "./server/media.server";
-import { notifyUserStatus } from "./server/notify.server";
 import { ensureMigrations } from "./server/migrations.server";
 import { TX_COLS, type TxRow } from "./server/tx.server";
 import { BOOKMAKER_COLS, type Bookmaker } from "./server/wallet-auth.server";
 import { USER_COLS, type TgUser } from "./server/users.server";
 import { getBotInfo, telegramMode, tg, webhookSecret } from "./server/telegram.server";
 import { VIDEO_SLOT_IDS } from "./videos";
+import { verifyInitData } from "./server/initdata.server";
+import { parseAdminIds } from "./server/admins";
+import { approveRequest, isTelegramAdmin, rejectRequest } from "./server/requests.server";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
   return { configured: adminConfigured(), loggedIn: await isAdmin() };
@@ -33,6 +35,23 @@ export const adminLogout = createServerFn({ method: "POST" }).handler(async () =
   await s.clear();
   return { ok: true };
 });
+
+// Opening the admin panel from the bot (inside Telegram): the signed Telegram data proves who it is.
+export const adminTelegramLogin = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ initData: z.string().min(1).max(8192) }).parse(d))
+  .handler(async ({ data }) => {
+    await ensureMigrations();
+    let v: Awaited<ReturnType<typeof verifyInitData>>;
+    try {
+      v = await verifyInitData(data.initData);
+    } catch {
+      return { ok: false as const, error: "bad_telegram" as const, id: null };
+    }
+    if (v.demo || !(await isTelegramAdmin(v.user.id))) return { ok: false as const, error: "not_admin" as const, id: v.user.id };
+    const s = await adminSession();
+    await s.update({ admin: true, at: Date.now() });
+    return { ok: true as const, error: null, id: v.user.id };
+  });
 
 // ---------- Dashboard / reports ----------
 export const adminDashboard = createServerFn({ method: "POST" })
@@ -190,25 +209,7 @@ export const adminApproveRequest = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireAdmin();
-    const t = await maybeOne(
-      sql<{ bookmaker_id: string | null; type: string }[]>`select bookmaker_id, type from public.transactions where id = ${data.id}`,
-    );
-    let feePercent = 0;
-    if (t?.bookmaker_id && t.type === "bk_withdraw") {
-      const bk = await maybeOne(
-        sql<{ withdraw_fee_percent: number }[]>`
-          select withdraw_fee_percent::float8 as withdraw_fee_percent from public.bookmakers where id = ${t.bookmaker_id}`,
-      );
-      feePercent = Number(bk?.withdraw_fee_percent ?? 0);
-    }
-    const s = await getSettings();
-    const rows = await sql<TxRow[]>`
-      select ${TX_COLS()} from approve_transaction(
-        ${data.id}, ${data.amount}, ${feePercent}, ${num(s.referral_percent, 0)}, ${data.note || null}
-      )`;
-    const done = rows[0];
-    if (!done) throw new Error("not_found");
-    await notifyUserStatus(done);
+    await approveRequest(data.id, data.amount, data.note);
     return { ok: true };
   });
 
@@ -216,10 +217,7 @@ export const adminRejectRequest = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ id: z.string().uuid(), note: z.string().max(300).default("") }).parse(d))
   .handler(async ({ data }) => {
     await requireAdmin();
-    const rows = await sql<TxRow[]>`select ${TX_COLS()} from reject_transaction(${data.id}, ${data.note || null})`;
-    const done = rows[0];
-    if (!done) throw new Error("not_found");
-    await notifyUserStatus(done);
+    await rejectRequest(data.id, data.note);
     return { ok: true };
   });
 
@@ -459,6 +457,19 @@ export const adminConnectBot = createServerFn({ method: "POST" })
         { command: "lang", description: "Tilni o'zgartirish / Сменить язык" },
       ],
     });
+    // Admins also see /admin and /karta in their own command list.
+    for (const id of parseAdminIds(s.admin_chat_id).filter((x) => x > 0)) {
+      await tg("setMyCommands", {
+        scope: { type: "chat", chat_id: id },
+        commands: [
+          { command: "admin", description: "🛠 Admin panel" },
+          { command: "karta", description: "To'ldirish kartasini o'zgartirish" },
+          { command: "start", description: "Boshlash / Начать" },
+          { command: "menu", description: "Asosiy menyu / Главное меню" },
+          { command: "lang", description: "Tilni o'zgartirish / Сменить язык" },
+        ],
+      }).catch(() => undefined);
+    }
     await tg("setMyDescription", {
       description: `${s.brand_name || "Kassa 24/7"}: bukmeker hisobini tez to'ldirish va yechish. 24/7.`,
     }).catch(() => undefined);

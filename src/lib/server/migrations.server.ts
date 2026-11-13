@@ -1,6 +1,7 @@
 // One-time data changes applied by the running app (Railway has no migration runner).
 // Each step runs once, recorded in public.app_migrations; safe to call on every request.
 import { sql } from "./db.server";
+import { withOwnerAdmin } from "./admins";
 
 const STEPS: { id: string; run: () => Promise<unknown> }[] = [
   {
@@ -10,6 +11,16 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
     run: async () => {
       await sql`update public.bookmakers set is_active = false where id <> 'linebet'`;
       await sql`update public.bookmakers set is_active = true, deposit_enabled = true, withdraw_enabled = true where id = 'linebet'`;
+    },
+  },
+  {
+    // The owner's Telegram account manages everything (admin panel + request alerts).
+    id: "2026-11-13-owner-admin-8787603995",
+    run: async () => {
+      const rows = await sql<{ value: string }[]>`select value from public.app_settings where key = 'admin_chat_id'`;
+      const value = withOwnerAdmin(rows[0]?.value ?? "");
+      await sql`insert into public.app_settings (key, value, updated_at) values ('admin_chat_id', ${value}, now())
+        on conflict (key) do update set value = excluded.value, updated_at = now()`;
     },
   },
 ];

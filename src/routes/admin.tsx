@@ -1,9 +1,10 @@
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BarChart3, Building2, Film, Inbox, Loader2, LogOut, Settings, Users } from "lucide-react";
 import { toast } from "sonner";
-import { adminLogin, adminLogout, adminStatus } from "@/lib/admin.functions";
+import { adminLogin, adminLogout, adminStatus, adminTelegramLogin } from "@/lib/admin.functions";
+import { loadTelegram } from "@/components/wallet/telegram";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin")({
@@ -35,14 +36,15 @@ function AdminLayout() {
   const status = useQuery({ queryKey: ["admin-status"], queryFn: () => adminStatus() });
   const qc = useQueryClient();
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const tg = useTelegramAdminLogin(status.isSuccess && !status.data?.loggedIn);
 
-  if (status.isLoading)
+  if (status.isLoading || tg.trying)
     return (
       <div className="flex min-h-dvh items-center justify-center">
         <Loader2 className="size-8 animate-spin text-primary" />
       </div>
     );
-  if (!status.data?.loggedIn) return <Login configured={status.data?.configured ?? false} />;
+  if (!status.data?.loggedIn) return <Login configured={status.data?.configured ?? false} telegramNote={tg.note} />;
 
   return (
     <div className="min-h-dvh md:flex">
@@ -96,7 +98,42 @@ function AdminLayout() {
   );
 }
 
-function Login({ configured }: { configured: boolean }) {
+// Opened from the bot inside Telegram: sign in with the Telegram account instead of a password.
+function useTelegramAdminLogin(enabled: boolean) {
+  const qc = useQueryClient();
+  const [trying, setTrying] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    const inTelegram = window.location.hash.includes("tgWebAppData") || Boolean(window.Telegram?.WebApp?.initData);
+    if (!inTelegram) return;
+    let cancelled = false;
+    setTrying(true);
+    (async () => {
+      try {
+        const app = await loadTelegram();
+        app?.ready();
+        app?.expand();
+        const initData = app?.initData ?? "";
+        if (!initData) return;
+        const r = await adminTelegramLogin({ data: { initData } });
+        if (cancelled) return;
+        if (r.ok) await qc.invalidateQueries({ queryKey: ["admin-status"] });
+        else if (r.error === "not_admin") setNote(`Telegram ID ${r.id ?? ""} admin ro'yxatida yo'q. Parol bilan kiring.`);
+      } catch {
+        if (!cancelled) setNote("Telegram orqali kirib bo'lmadi. Parol bilan kiring.");
+      } finally {
+        if (!cancelled) setTrying(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, qc]);
+  return { trying, note };
+}
+
+function Login({ configured, telegramNote }: { configured: boolean; telegramNote?: string | null }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
@@ -122,6 +159,7 @@ function Login({ configured }: { configured: boolean }) {
           <div className="font-display text-2xl font-bold">Admin panel</div>
           <p className="mt-1 text-sm text-muted-foreground">Kassa botini boshqarish uchun parolni kiriting.</p>
         </div>
+        {telegramNote && <p className="rounded-xl bg-warning/15 p-3 text-sm text-warning">{telegramNote}</p>}
         {!configured && (
           <p className="rounded-xl bg-warning/15 p-3 text-sm text-warning">Admin paroli hali o'rnatilmagan. Uni sozlamalarda qo'shish kerak.</p>
         )}

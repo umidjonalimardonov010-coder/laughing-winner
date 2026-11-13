@@ -1,5 +1,6 @@
 import { maybeOne, sql } from "./db.server";
-import { getSettings } from "./settings.server";
+import { getSettings, publicBase } from "./settings.server";
+import { signedUrl } from "./media.server";
 import { escapeHtml, telegramMode, tg } from "./telegram.server";
 import { formatSom, maskCard } from "@/lib/format";
 
@@ -17,6 +18,7 @@ type Tx = {
   withdraw_code: string | null;
   card_number: string | null;
   admin_note: string | null;
+  receipt_path?: string | null;
 };
 
 const TYPE_UZ: Record<string, string> = {
@@ -64,16 +66,32 @@ export async function notifyAdminsNewRequest(tx: Tx) {
     if (tx.card_number) lines.push(`💳 Karta: <code>${escapeHtml(tx.card_number)}</code>`);
     if (tx.amount) lines.push(`💰 Summa: <b>${formatSom(tx.amount)} so'm</b>`);
     if (tx.bonus) lines.push(`🎁 Bonus: +${formatSom(tx.bonus)} so'm (BK hisobiga jami ${formatSom(tx.amount + tx.bonus)} so'm)`);
-    const adminUrl = s.public_url ? `${s.public_url}/admin/requests` : null;
+    if (tx.admin_note) lines.push(`💬 ${escapeHtml(tx.admin_note)}`);
+    // A code withdrawal needs the amount typed in the panel; everything else can be decided right here.
+    const needsAmount = tx.type === "bk_withdraw" && !tx.amount;
+    if (needsAmount) lines.push("ℹ️ Summani admin panelda kiriting.");
+    const base = publicBase(s);
+    const adminUrl = base ? `${base}/admin/requests` : null;
+    const receipt = tx.receipt_path && base ? await signedUrl("receipts", tx.receipt_path, 60 * 60 * 24, base) : null;
+    const text = lines.join("\n");
     for (const chatId of ids) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: lines.join("\n"),
-        parse_mode: "HTML",
-        ...(adminUrl
-          ? { reply_markup: { inline_keyboard: [[{ text: "🛠 Admin panelda ochish", url: adminUrl }]] } }
-          : {}),
-      }).catch(() => undefined);
+      const keyboard: unknown[][] = [];
+      if ((tx.status ?? "pending") === "pending" && !needsAmount) {
+        keyboard.push([
+          { text: "✅ Tasdiqlash", callback_data: `adm:ok:${tx.id}` },
+          { text: "❌ Rad etish", callback_data: `adm:no:${tx.id}` },
+        ]);
+      }
+      if (adminUrl) {
+        // Inside Telegram the panel opens already signed in (private chats only support web_app buttons).
+        keyboard.push([
+          Number(chatId) > 0
+            ? { text: "🛠 Admin panelda ochish", web_app: { url: adminUrl } }
+            : { text: "🛠 Admin panelda ochish", url: adminUrl },
+        ]);
+      }
+      const markup = keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {};
+      await sendWithReceipt(chatId, text, receipt, tx.receipt_path ?? "", markup);
     }
   } catch (e) {
     console.error("notifyAdminsNewRequest", e);
@@ -110,4 +128,26 @@ export async function notifyUserStatus(tx: Tx) {
   } catch (e) {
     console.error("notifyUserStatus", e);
   }
+}
+
+// The receipt photo goes with the alert so the admin can check the payment in Telegram.
+async function sendWithReceipt(chatId: string, text: string, receiptUrl: string | null, path: string, markup: object) {
+  if (receiptUrl) {
+    const isPdf = /\.pdf$/i.test(path);
+    const tries: [string, Record<string, unknown>][] = isPdf
+      ? [["sendDocument", { document: receiptUrl }]]
+      : [
+          ["sendPhoto", { photo: receiptUrl }],
+          ["sendDocument", { document: receiptUrl }],
+        ];
+    for (const [method, media] of tries) {
+      try {
+        await tg(method, { chat_id: chatId, caption: text, parse_mode: "HTML", ...media, ...markup });
+        return;
+      } catch {
+        // try the next way, then plain text
+      }
+    }
+  }
+  await tg("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", ...markup }).catch(() => undefined);
 }

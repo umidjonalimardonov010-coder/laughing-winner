@@ -28,6 +28,25 @@ Ilova endi **Railway'ning o'z bazasida** (PostgreSQL) ishlaydi. Supabase kerak e
 | `MEDIA_DIR` | `/data/media` (3-bosqichdagi volume yo'li) |
 | `PUBLIC_URL` | (ixtiyoriy) saytingiz manzili, masalan `https://kassa.up.railway.app` |
 
+## 4.1 LINEBET avtomatik kassa (ixtiyoriy, lekin tavsiya)
+Linebet kassa (Cashdesk) API ma'lumotlarini **faqat Railway → ilova xizmati → Variables** ga yozing (chatga yoki GitHub'ga emas):
+
+| Nomi | Qiymati |
+|---|---|
+| `LINEBET_CASHDESK_ID` | Kassa ID (raqam) |
+| `LINEBET_CASHIER_PASS` | Kassir paroli |
+| `LINEBET_HASH` | API hash (kalit) |
+| `LINEBET_API_URL` | (ixtiyoriy) API manzili, standart: `https://partners.servcul.com/CashdeskBotAPI/` |
+| `LINEBET_LNG` | (ixtiyoriy) til, standart `ru` |
+
+Uchalasi ham yozilsa, Linebet'ga pul kiritish va chiqarish avtomatik bo'ladi:
+- **Kiritish:** mijoz hamyonidan pul yechiladi → kassa API orqali Linebet hisobiga (summa + bonus − komissiya) tushadi → so'rov "bajarildi".
+- **Chiqarish:** mijoz ID va 4 belgili kodni kiritadi → API pulni yechadi → summa (komissiyasiz) hamyonga tushadi.
+- Kassa aniq rad etsa — pul hamyonga qaytadi. Javob kelmasa — so'rov kutishda qoladi va adminga "kassani tekshiring" xabari boradi.
+- Yozilmagan bo'lsa — eski tartib: admin so'rovni qo'lda tasdiqlaydi.
+
+Boshqa bukmekerlar yashirilgan; admin panel → **Bukmekerlar** → "Ko'rinadi" tugmasi bilan qaytariladi (ular qo'lda ishlaydi).
+
 ## 5. Deploy
 1. **Settings → Networking → Generate Domain** — https manzil chiqadi.
 2. GitHub repo ulangan bo'lsa, push qilganda o'zi quradi (Dockerfile).

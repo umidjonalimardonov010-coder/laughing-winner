@@ -98,6 +98,9 @@ const uz = {
   back: "Orqaga",
   accountChecked: "ID qabul qilindi",
   checkNote: "Hisob raqami so'rov bilan birga adminga yuboriladi.",
+  autoDone: "Bajarildi! Pul avtomatik o'tkazildi.",
+  bkRejected: "Bukmeker kassasi rad etdi. ID yoki kodni tekshiring — pul hamyoningizga qaytarildi.",
+  accountNotFound: "Bu ID bilan hisob topilmadi",
 };
 
 type Dict = typeof uz;
@@ -195,6 +198,9 @@ const ru: Dict = {
   back: "Назад",
   accountChecked: "ID принят",
   checkNote: "Номер счёта будет отправлен администратору вместе с заявкой.",
+  autoDone: "Готово! Деньги переведены автоматически.",
+  bkRejected: "Касса букмекера отклонила операцию. Проверьте ID или код — деньги возвращены в кошелёк.",
+  accountNotFound: "Счёт с таким ID не найден",
 };
 
 const en: Dict = {
@@ -290,6 +296,9 @@ const en: Dict = {
   back: "Back",
   accountChecked: "ID accepted",
   checkNote: "The account number is sent to the admin with your request.",
+  autoDone: "Done! The money was transferred automatically.",
+  bkRejected: "The bookmaker's cashdesk declined. Check the ID or code — the money is back in your wallet.",
+  accountNotFound: "No account found with this ID",
 };
 
 export const DICTS: Record<Lang, Dict> = { uz, ru, en };

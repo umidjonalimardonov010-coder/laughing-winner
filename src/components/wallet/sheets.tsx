@@ -42,9 +42,9 @@ function AmountInput({ value, onChange, placeholder, disabled }: { value: string
 function useAfterSuccess() {
   const { refresh, t, haptic } = useWallet();
   const qc = useQueryClient();
-  return async (number?: number) => {
+  return async (number?: number, auto?: "done" | "pending" | "manual") => {
     haptic("success");
-    toast.success(t("requestSent"), { description: number ? `#${number}` : undefined });
+    toast.success(t(auto === "done" ? "autoDone" : "requestSent"), { description: number ? `#${number}` : undefined });
     await Promise.all([refresh(), qc.invalidateQueries({ queryKey: ["wallet-history"] })]);
   };
 }
@@ -94,8 +94,8 @@ export function BookmakerSheet({
       if (r.ok) {
         setChecked(true);
         haptic("success");
-        toast.success(t("accountChecked"), { description: t("checkNote") });
-      } else toast.error(t("invalidAccount"));
+        toast.success(t("accountChecked"), { description: r.name ? r.name : t("checkNote") });
+      } else toast.error(t("accountNotFound"));
     } catch (e) {
       toast.error(errorText(t, e));
     } finally {
@@ -114,14 +114,14 @@ export function BookmakerSheet({
         if (amt < bk.min_amount || amt > bk.max_amount) throw new Error("invalid_amount");
         if (amt > boot.user.balance) throw new Error("insufficient");
         const r = await walletBkDeposit({ data: { initData, bookmakerId: bk.id, accountId: account, amount: amt } });
-        await done(r.number);
+        await done(r.number, r.auto);
       } else {
         if (!/^[A-Za-z0-9]{4}$/.test(code)) {
           toast.error(t("invalidCode"));
           return;
         }
         const r = await walletBkWithdraw({ data: { initData, bookmakerId: bk.id, accountId: account, code } });
-        await done(r.number);
+        await done(r.number, r.auto);
       }
       onClose();
     } catch (e) {

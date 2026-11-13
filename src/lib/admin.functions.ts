@@ -7,6 +7,7 @@ import { adminConfigured, adminSession, isAdmin, passwordMatches, requireAdmin }
 import { getSettings, num, saveSettings, SETTING_KEYS } from "./server/settings.server";
 import { removeMedia, signedUploadUrl, signedUrl, signedUrls } from "./server/media.server";
 import { notifyUserStatus } from "./server/notify.server";
+import { ensureMigrations } from "./server/migrations.server";
 import { TX_COLS, type TxRow } from "./server/tx.server";
 import { BOOKMAKER_COLS, type Bookmaker } from "./server/wallet-auth.server";
 import { USER_COLS, type TgUser } from "./server/users.server";
@@ -271,6 +272,7 @@ export const adminSetBlocked = createServerFn({ method: "POST" })
 // ---------- Bookmakers ----------
 export const adminListBookmakers = createServerFn({ method: "POST" }).handler(async () => {
   await requireAdmin();
+  await ensureMigrations();
   const rows = await sql<Bookmaker[]>`select ${BOOKMAKER_COLS()} from public.bookmakers order by sort_order`;
   const logos = await signedUrls(
     "media",

@@ -27,6 +27,7 @@ export function useWallet() {
 export function errorText(t: WalletCtx["t"], e: unknown, vars?: Record<string, string | number>) {
   const m = e instanceof Error ? e.message : String(e);
   if (m.includes("insufficient")) return t("insufficient");
+  if (m.includes("bk_rejected")) return t("bkRejected");
   if (m.includes("invalid_amount")) return t("invalidAmount", vars);
   return t("errorGeneric");
 }

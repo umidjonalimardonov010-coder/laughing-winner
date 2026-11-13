@@ -13,15 +13,25 @@ import {
 import { getSettings, num } from "./server/settings.server";
 import { countReferrals, listReferrals } from "./server/users.server";
 import { signedUploadUrl, signedUrls } from "./server/media.server";
-import { notifyAdminsNewRequest } from "./server/notify.server";
+import { notifyAdminsNewRequest, notifyUserStatus } from "./server/notify.server";
+import {
+  cashdeskCreds,
+  cashdeskDeposit,
+  cashdeskFindUser,
+  cashdeskPayout,
+  depositSumma,
+  type CashdeskResult,
+} from "./server/cashdesk.server";
 import { TX_COLS, type TxRow } from "./server/tx.server";
 import { VIDEO_SLOTS } from "./videos";
+import { ensureMigrations } from "./server/migrations.server";
 
 const initSchema = z.object({ initData: z.string().max(8192) });
 
 export const walletBootstrap = createServerFn({ method: "POST" })
   .inputValidator((d) => initSchema.parse(d))
   .handler(async ({ data }) => {
+    await ensureMigrations();
     const { user, demo } = await auth(data.initData);
     const s = await getSettings();
     const [bks, vids, refs] = await Promise.all([
@@ -115,14 +125,49 @@ export const walletSetLang = createServerFn({ method: "POST" })
 
 const accountSchema = z.string().trim().regex(/^\d{5,15}$/);
 
-// No bookmaker API yet: only checks the format. Real lookup plugs in here later.
+// Bookmakers with a cashdesk API (LINEBET) look the player up; others only check the format.
 export const walletCheckAccount = createServerFn({ method: "POST" })
   .inputValidator((d) => initSchema.extend({ bookmakerId: z.string().max(40), accountId: z.string().max(32) }).parse(d))
   .handler(async ({ data }) => {
     await auth(data.initData);
     const ok = accountSchema.safeParse(data.accountId).success;
-    return { ok, name: null as string | null };
+    if (!ok) return { ok, name: null as string | null };
+    const creds = cashdeskCreds(data.bookmakerId);
+    if (!creds) return { ok, name: null as string | null };
+    const found = await cashdeskFindUser(creds, data.accountId.trim());
+    // No clear answer from the API: let the user continue, the deposit call checks again.
+    if (!found) return { ok: true, name: null as string | null };
+    return { ok: found.found, name: found.name };
   });
+
+type AutoOutcome = { ok: true; number: number; auto: "done" | "pending" | "manual"; amount: number };
+
+// Applies the cashdesk answer to a pending request:
+// ok → approve (balance/referral rules in approve_transaction); rejected → refund via reject;
+// unknown → keep pending and alert admins, because the money may already have moved.
+async function finishAuto(tx: TxRow, bkName: string, r: CashdeskResult, withdrawFeePercent: number): Promise<AutoOutcome> {
+  const s = await getSettings();
+  if (r.kind === "ok" && (tx.type === "bk_deposit" || r.summa > 0)) {
+    const amount = tx.type === "bk_withdraw" ? Math.round(r.summa) : 0;
+    const rows = await sql<TxRow[]>`
+      select ${TX_COLS()} from approve_transaction(
+        ${tx.id}, ${amount}, ${tx.type === "bk_withdraw" ? withdrawFeePercent : 0},
+        ${num(s.referral_percent, 0)}, ${`Avto: ${bkName}`}
+      )`;
+    const done = rows[0] ?? tx;
+    await notifyUserStatus(done);
+    return { ok: true, number: tx.number, auto: "done", amount: Number(done.amount) };
+  }
+  if (r.kind === "rejected") {
+    await sql`select 1 from reject_transaction(${tx.id}, ${`${bkName}: ${r.message}`.slice(0, 300)})`;
+    throw new Error(`bk_rejected: ${r.message}`);
+  }
+  const rows = await sql<TxRow[]>`
+    update public.transactions set admin_note = ${`⚠️ Avto: ${bkName} javob bermadi — kassani tekshiring (${r.message})`.slice(0, 300)}
+    where id = ${tx.id} returning ${TX_COLS()}`;
+  await notifyAdminsNewRequest(rows[0] ?? tx);
+  return { ok: true, number: tx.number, auto: "pending", amount: Number(tx.amount) };
+}
 
 export const walletBkDeposit = createServerFn({ method: "POST" })
   .inputValidator((d) =>
@@ -149,8 +194,13 @@ export const walletBkDeposit = createServerFn({ method: "POST" })
       friendlyError(e);
     }
     if (!tx) throw new Error("request_failed");
+    const creds = cashdeskCreds(bk.id);
+    if (creds) {
+      const r = await cashdeskDeposit(creds, data.accountId, depositSumma(Number(tx.amount), Number(tx.bonus), Number(tx.fee)));
+      return finishAuto(tx, bk.name, r, 0);
+    }
     await notifyAdminsNewRequest(tx);
-    return { ok: true, number: tx.number };
+    return { ok: true, number: tx.number, auto: "manual", amount: Number(tx.amount) } satisfies AutoOutcome;
   });
 
 export const walletBkWithdraw = createServerFn({ method: "POST" })
@@ -169,8 +219,13 @@ export const walletBkWithdraw = createServerFn({ method: "POST" })
       returning ${TX_COLS()}`;
     const tx = rows[0];
     if (!tx) throw new Error("request_failed");
+    const creds = cashdeskCreds(bk.id);
+    if (creds) {
+      const r = await cashdeskPayout(creds, data.accountId, data.code);
+      return finishAuto(tx, bk.name, r, Number(bk.withdraw_fee_percent));
+    }
     await notifyAdminsNewRequest(tx);
-    return { ok: true, number: tx.number };
+    return { ok: true, number: tx.number, auto: "manual", amount: 0 } satisfies AutoOutcome;
   });
 
 export const walletReceiptUploadUrl = createServerFn({ method: "POST" })

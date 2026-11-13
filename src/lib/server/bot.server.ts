@@ -1,4 +1,5 @@
 // Telegram bot conversation logic (chat side). Money operations happen in the WALLET mini app.
+import { ensureMigrations } from "./migrations.server";
 import { maybeOne, sql, ts } from "./db.server";
 import { getSettings, type Settings } from "./settings.server";
 import { escapeHtml, tg } from "./telegram.server";
@@ -184,6 +185,7 @@ async function sendLanguagePicker(chatId: number) {
 type Update = any;
 
 export async function handleUpdate(update: Update, fallbackOrigin: string) {
+  await ensureMigrations();
   const s = await getSettings();
   const base = (s.public_url || fallbackOrigin).replace(/\/$/, "");
   const walletUrl = `${base}/app`;

@@ -34,7 +34,7 @@ import { referralLink } from "@/lib/referral";
 import { useWallet, type Bookmaker } from "./context";
 import heroWallet from "@/assets/hero-wallet.webp";
 import banner from "@/assets/linebet-banner.jpg";
-import { BkLogo, Coin, Glass, IconTile, Wordmark } from "./ui";
+import { BkLogo, BrandMark, Glass, IconTile, StickyHeader, Wordmark } from "./ui";
 
 
 export function Home({
@@ -58,7 +58,7 @@ export function Home({
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <div className="relative flex h-12 items-center gap-2 rounded-2xl border border-primary/30 bg-background/70 px-3 shadow-[var(--shadow-glow)] backdrop-blur">
-          <Coin size={26} spin={3} />
+          <BrandMark size={26} />
           <Wordmark className="text-lg" />
         </div>
         <div className="min-w-0 flex-1 text-right">
@@ -156,10 +156,12 @@ export function Services({ onOpen }: { onOpen: (bk: Bookmaker, mode: "deposit" |
   const { boot, t } = useWallet();
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <h1 className="font-display text-3xl font-bold">{t("services")}</h1>
-        <span className="flex size-9 items-center justify-center rounded-full bg-secondary text-sm text-muted-foreground">{boot.bookmakers.length}</span>
-      </div>
+      <StickyHeader>
+        <div className="flex items-center gap-3">
+          <h1 className="font-display text-3xl font-bold">{t("services")}</h1>
+          <span className="flex size-9 items-center justify-center rounded-full bg-secondary text-sm text-muted-foreground">{boot.bookmakers.length}</span>
+        </div>
+      </StickyHeader>
       <Glass className="flex items-center gap-3 border-l-4 border-l-primary px-5 py-5">
         <Wallet className="size-5 text-muted-foreground" />
         <span className="flex-1 text-muted-foreground">{t("currentBalance")}</span>
@@ -214,7 +216,9 @@ export function History() {
   ];
   return (
     <div className="space-y-4">
-      <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
+      <StickyHeader>
+        <h1 className="mb-3 font-display text-3xl font-bold">{t("navHistory")}</h1>
+        <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
         {chips.map((c) => (
           <button
             key={c.id}
@@ -228,7 +232,8 @@ export function History() {
             {c.label}
           </button>
         ))}
-      </div>
+        </div>
+      </StickyHeader>
       {q.isLoading ? (
         <Glass className="h-40 animate-pulse">{null}</Glass>
       ) : rows.length === 0 ? (
@@ -344,12 +349,14 @@ export function Profile({ onReferrals, onLang, onHelp }: { onReferrals: () => vo
 
 function PageHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <div className="relative flex h-14 items-center justify-center">
-      <button onClick={onBack} aria-label="back" className="glass absolute left-0 flex size-12 items-center justify-center rounded-2xl">
-        <ArrowLeft className="size-5" />
-      </button>
-      <h1 className="font-display text-xl font-bold">{title}</h1>
-    </div>
+    <StickyHeader>
+      <div className="relative flex h-12 items-center justify-center">
+        <button onClick={onBack} aria-label="back" className="btn-ghost-pro absolute left-0 flex size-12 items-center justify-center rounded-2xl">
+          <ArrowLeft className="size-5" />
+        </button>
+        <h1 className="font-display text-xl font-bold">{title}</h1>
+      </div>
+    </StickyHeader>
   );
 }
 
@@ -445,7 +452,7 @@ export function NavBar({ tab, setTab }: { tab: string; setTab: (t: "home" | "ser
     { id: "new" as const, label: t("navNew"), icon: Sparkles },
   ];
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+    <nav className="tg-safe-bottom fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md px-3">
       <div className="grid grid-cols-4 rounded-[1.75rem] border border-primary/20 bg-background/85 p-2 shadow-[0_-10px_40px_-12px_oklch(0.74_0.22_142/0.35)] backdrop-blur-xl">
         {items.map((it) => {
           const active = tab === it.id;

@@ -15,6 +15,10 @@ export type TgWebApp = {
   };
   BackButton?: { show: () => void; hide: () => void; onClick: (cb: () => void) => void; offClick: (cb: () => void) => void };
   disableVerticalSwipes?: () => void;
+  platform?: string;
+  isFullscreen?: boolean;
+  isVersionAtLeast?: (v: string) => boolean;
+  requestFullscreen?: () => void;
 };
 
 declare global {

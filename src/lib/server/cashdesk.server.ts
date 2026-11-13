@@ -208,3 +208,50 @@ export async function serverPublicIp(): Promise<string | null> {
     return null;
   }
 }
+
+// ---- Safe connection check (read-only: balance + optional player lookup, never moves money) ----
+export type CheckStepId = "keys" | "reach" | "ip" | "auth" | "player";
+export type CheckStep = { id: CheckStepId; state: "ok" | "fail" | "skip"; note?: string };
+export type CheckVerdict = { level: "ok" | "warn" | "error"; title: string; hint: string; steps: CheckStep[] };
+type BalanceResult = Awaited<ReturnType<typeof cashdeskBalance>>;
+
+const MISSING_LABEL: Record<string, string> = { CASHDESK_ID: "Kassa ID", CASHIER_PASS: "kassir paroli", HASH: "hash kaliti" };
+
+/** Which of the three required credentials are empty. Pure. */
+export function missingCreds(prefix: string, src: Record<string, string | undefined>): string[] {
+  return (["CASHDESK_ID", "CASHIER_PASS", "HASH"] as const).filter((s) => !src[`${prefix}_${s}`]?.trim());
+}
+
+/** Turns a check into a plain-language verdict with a step list. Pure, unit-tested. */
+export function cashdeskVerdict(input: {
+  missing: string[];
+  balance?: BalanceResult | undefined;
+  player?: { found: boolean; name: string | null } | null | undefined;
+}): CheckVerdict {
+  const steps = (s: Partial<Record<CheckStepId, CheckStep["state"]>>, notes: Partial<Record<CheckStepId, string>> = {}): CheckStep[] =>
+    (["keys", "reach", "ip", "auth", "player"] as const).map((id) => ({ id, state: s[id] ?? "skip", ...(notes[id] ? { note: notes[id] } : {}) }));
+
+  if (input.missing.length) {
+    const names = input.missing.map((m) => MISSING_LABEL[m] ?? m).join(", ");
+    return { level: "error", title: "Kalitlar to'liq emas", hint: `Yetishmayapti: ${names}.`, steps: steps({ keys: "fail" }, { keys: names }) };
+  }
+  const b = input.balance;
+  if (!b) return { level: "error", title: "Tekshirib bo'lmadi", hint: "", steps: steps({ keys: "ok" }) };
+  if (b.ok) {
+    const p = input.player;
+    if (p === undefined)
+      return { level: "ok", title: "Ulanish ishlayapti", hint: "Linebet kalitlarni qabul qildi. Avto to'ldirish va yechish tayyor.", steps: steps({ keys: "ok", reach: "ok", ip: "ok", auth: "ok" }) };
+    if (p === null)
+      return { level: "warn", title: "Kassa ulandi, o'yinchi tekshirilmadi", hint: "O'yinchi so'roviga javob kelmadi. Birozdan keyin qayta urinib ko'ring.", steps: steps({ keys: "ok", reach: "ok", ip: "ok", auth: "ok", player: "fail" }) };
+    if (!p.found)
+      return { level: "warn", title: "Kassa ulandi, o'yinchi topilmadi", hint: "Kalitlar to'g'ri. Kiritilgan o'yinchi ID Linebet'da topilmadi.", steps: steps({ keys: "ok", reach: "ok", ip: "ok", auth: "ok", player: "fail" }) };
+    return { level: "ok", title: "Ulanish ishlayapti", hint: "Linebet kalitlarni qabul qildi va o'yinchi topildi.", steps: steps({ keys: "ok", reach: "ok", ip: "ok", auth: "ok", player: "ok" }, p.name ? { player: p.name } : {}) };
+  }
+  const hint = b.hint || b.message;
+  if (b.status === 0) return { level: "error", title: "Linebet serveriga ulanib bo'lmadi", hint, steps: steps({ keys: "ok", reach: "fail" }) };
+  if (b.status === 403) return { level: "error", title: "Server IP manziliga ruxsat yo'q", hint, steps: steps({ keys: "ok", reach: "ok", ip: "fail" }) };
+  if (b.status === 401) return { level: "error", title: "Kalitlar mos kelmadi", hint, steps: steps({ keys: "ok", reach: "ok", ip: "ok", auth: "fail" }) };
+  if (b.status === 404) return { level: "error", title: "Kassa topilmadi", hint, steps: steps({ keys: "ok", reach: "ok", ip: "ok", auth: "fail" }) };
+  if (b.status >= 500) return { level: "warn", title: "Linebet serverida vaqtinchalik xato", hint, steps: steps({ keys: "ok", reach: "fail" }) };
+  return { level: "error", title: `Kutilmagan javob (HTTP ${b.status})`, hint, steps: steps({ keys: "ok", reach: "ok", auth: "fail" }) };
+}

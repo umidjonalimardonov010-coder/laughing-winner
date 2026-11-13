@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, Loader2, Plug, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Copy, KeyRound, Loader2, Plug, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   adminBotStatus,
@@ -320,71 +320,149 @@ function CashdeskPanel() {
               </button>
             )}
           </div>
-          <div className="space-y-2 rounded-xl border border-border p-3">
-            <div className="text-sm font-medium">Ulanishni tekshirish</div>
-            <input
-              value={playerId}
-              onChange={(e) => setPlayerId(e.target.value.replace(/\D/g, ""))}
-              inputMode="numeric"
-              placeholder="Linebet o'yinchi ID (ixtiyoriy)"
-              className={inputCls}
-            />
-            <button
-              disabled={!!busy}
-              onClick={async () => {
-                setBusy("test");
-                try {
-                  setTest(await adminTestCashdesk({ data: { playerId } }));
-                } catch (e) {
-                  toast.error(errMsg(e));
-                } finally {
-                  setBusy("");
-                }
-              }}
-              className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-secondary font-semibold disabled:opacity-60"
-            >
-              {busy === "test" ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />} Tekshirish
-            </button>
-            {test?.serverIp && (
-              <div className="flex items-center justify-between gap-2 rounded-lg bg-secondary px-3 py-2 text-sm">
-                <span className="text-muted-foreground">Server IP (Linebet ruxsat berishi kerak):</span>
-                <button
-                  className="font-mono font-semibold text-primary"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(test.serverIp ?? "");
-                    toast.success("IP nusxalandi");
-                  }}
-                >
-                  {test.serverIp}
-                </button>
-              </div>
-            )}
-            {test?.configured && (
-              <div className="space-y-1 text-sm">
-                {test.balance.ok ? (
-                  <div className="text-primary">
-                    ✅ Kassa balansi: <b>{test.balance.balance.toLocaleString("ru-RU")}</b>
-                    {test.balance.limit ? ` · Limit: ${test.balance.limit.toLocaleString("ru-RU")}` : ""}
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <div className="text-destructive">❌ Kassa javobi: {test.balance.message}</div>
-                    {test.balance.hint && <div className="text-foreground">{test.balance.hint}</div>}
-                  </div>
-                )}
-                {test.player !== undefined &&
-                  (test.player === null ? (
-                    <div className="text-warning">⚠️ O'yinchini tekshirib bo'lmadi (javob kelmadi)</div>
-                  ) : test.player.found ? (
-                    <div className="text-primary">✅ O'yinchi topildi{test.player.name ? `: ${test.player.name}` : ""}</div>
-                  ) : (
-                    <div className="text-destructive">❌ Bunday o'yinchi topilmadi</div>
-                  ))}
-              </div>
-            )}
-          </div>
+          <CashdeskCheck
+            busy={busy === "test"}
+            disabled={!!busy}
+            canTest={!!(cashierPass.trim() || d?.hasPass)}
+            playerId={playerId}
+            setPlayerId={setPlayerId}
+            result={test}
+            unsaved={!!(cashierPass.trim() || hash.trim() || cashdeskId !== (d?.cashdeskId ?? ""))}
+            onTest={async () => {
+              setBusy("test");
+              setTest(null);
+              try {
+                setTest(await adminTestCashdesk({ data: { playerId, cashdeskId, cashierPass, hash, apiUrl, lng } }));
+              } catch (e) {
+                toast.error(errMsg(e));
+              } finally {
+                setBusy("");
+              }
+            }}
+          />
         </>
       )}
     </Panel>
+  );
+}
+
+type TestResult = Awaited<ReturnType<typeof adminTestCashdesk>>;
+
+const STEP_LABEL: Record<TestResult["verdict"]["steps"][number]["id"], string> = {
+  keys: "Kalitlar to'liq (Kassa ID, parol, hash)",
+  reach: "Linebet serveri javob berdi",
+  ip: "Server IP manziliga ruxsat bor",
+  auth: "Linebet kalitlarni qabul qildi",
+  player: "O'yinchi topildi",
+};
+
+function CashdeskCheck({
+  busy,
+  disabled,
+  canTest,
+  playerId,
+  setPlayerId,
+  result,
+  unsaved,
+  onTest,
+}: {
+  busy: boolean;
+  disabled: boolean;
+  canTest: boolean;
+  playerId: string;
+  setPlayerId: (v: string) => void;
+  result: TestResult | null;
+  unsaved: boolean;
+  onTest: () => void;
+}) {
+  const v = result?.verdict;
+  const tone =
+    v?.level === "ok"
+      ? "border-primary/50 bg-primary/10"
+      : v?.level === "warn"
+        ? "border-warning/50 bg-warning/10"
+        : "border-destructive/50 bg-destructive/10";
+  return (
+    <div className="space-y-3 rounded-xl border border-border p-3">
+      <div className="flex items-start gap-2">
+        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+        <div>
+          <div className="text-sm font-medium">Ulanishni xavfsiz tekshirish</div>
+          <div className="text-xs text-muted-foreground">Faqat kassa balansi so'raladi, hech qanday pul o'tkazilmaydi. Yozilgan (hali saqlanmagan) qiymatlar bilan ham tekshiradi.</div>
+        </div>
+      </div>
+      <input
+        value={playerId}
+        onChange={(e) => setPlayerId(e.target.value.replace(/\D/g, ""))}
+        inputMode="numeric"
+        placeholder="Linebet o'yinchi ID (ixtiyoriy)"
+        className={inputCls}
+      />
+      <button
+        disabled={disabled || !canTest}
+        onClick={onTest}
+        className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-secondary font-semibold disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <Plug className="size-4" />} {busy ? "Tekshirilmoqda…" : "Ulanishni tekshirish"}
+      </button>
+      {!canTest && <p className="text-xs text-warning">Avval kassir parolini kiriting, keyin tekshirish mumkin.</p>}
+
+      {v && (
+        <div className={`space-y-3 rounded-xl border p-3 ${tone}`} role="status">
+          <div className="flex items-start gap-2">
+            {v.level === "ok" ? (
+              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-primary" />
+            ) : v.level === "warn" ? (
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" />
+            ) : (
+              <XCircle className="mt-0.5 size-5 shrink-0 text-destructive" />
+            )}
+            <div className="min-w-0">
+              <div className="font-semibold">{v.title}</div>
+              {v.hint && <div className="text-sm text-muted-foreground">{v.hint}</div>}
+            </div>
+          </div>
+          <ul className="space-y-1.5 text-sm">
+            {v.steps.map((s) => (
+              <li key={s.id} className="flex items-center gap-2">
+                {s.state === "ok" ? (
+                  <CheckCircle2 className="size-4 shrink-0 text-primary" />
+                ) : s.state === "fail" ? (
+                  <XCircle className="size-4 shrink-0 text-destructive" />
+                ) : (
+                  <Circle className="size-4 shrink-0 text-muted-foreground/50" />
+                )}
+                <span className={s.state === "skip" ? "text-muted-foreground" : ""}>
+                  {STEP_LABEL[s.id]}
+                  {s.note ? <span className="text-muted-foreground"> · {s.note}</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {result?.balance && (
+            <div className="rounded-lg bg-background/60 px-3 py-2 text-sm">
+              Kassa balansi: <b className="tabular">{result.balance.balance.toLocaleString("ru-RU")}</b>
+              {result.balance.limit ? ` · Limit: ${result.balance.limit.toLocaleString("ru-RU")}` : ""}
+            </div>
+          )}
+          {result?.serverIp && (
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-background/60 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">Server IP (Linebet ruxsat berishi kerak):</span>
+              <button
+                className="flex items-center gap-1 font-mono font-semibold text-primary"
+                onClick={() => {
+                  navigator.clipboard?.writeText(result.serverIp ?? "");
+                  toast.success("IP nusxalandi");
+                }}
+              >
+                {result.serverIp} <Copy className="size-3.5" />
+              </button>
+            </div>
+          )}
+          {unsaved && v.level === "ok" && <p className="text-xs font-medium text-primary">Hammasi to'g'ri — endi «Saqlash» tugmasini bosing.</p>}
+          {result && <p className="text-[11px] text-muted-foreground">Tekshirildi: {new Date(result.checkedAt).toLocaleTimeString("ru-RU")}</p>}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import bg from "@/assets/linebet-bg.jpg";
 import { translate, type Lang, type TKey } from "@/lib/i18n";
 import { walletBootstrap, walletSetLang } from "@/lib/wallet.functions";
 import { Ctx, type Bookmaker, type WalletCtx } from "./context";
 import { loadTelegram, type TgWebApp } from "./telegram";
 import { Help, History, Home, NavBar, NewTab, Profile, Services, Videos } from "./screens";
-import { Coin, CoinField, Wordmark } from "./ui";
+import { BrandMark, LiveBackdrop, Wordmark } from "./ui";
 import { BookmakerSheet, CardWithdrawSheet, LangSheet, ReferralsSheet, TopupSheet, VideoModal } from "./sheets";
 
 type Tab = "home" | "services" | "history" | "new";
@@ -15,21 +14,16 @@ type Sheet = "topup" | "withdraw" | "refs" | "lang" | null;
 
 function Splash() {
   return (
-    <div className="fixed inset-0 flex flex-col items-center justify-center gap-6 overflow-hidden bg-background">
-      <img src={bg} alt="" width={864} height={1536} className="absolute inset-0 h-full w-full object-cover opacity-70" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,transparent,var(--background)_75%)]" />
-      <div className="relative">
-        <div className="animate-glow absolute inset-0 -m-6 rounded-full bg-primary/30 blur-2xl" />
-        <Coin size={120} spin={2.4} />
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-6 overflow-hidden">
+      <LiveBackdrop />
+      <div className="relative flex size-32 items-center justify-center">
+        <div className="animate-glow absolute inset-0 rounded-full bg-primary/30 blur-2xl" />
+        <div className="animate-ring absolute inset-0 rounded-full border-2 border-primary/15 border-t-primary" />
+        <BrandMark size={72} />
       </div>
       <div className="relative text-center">
         <Wordmark className="text-4xl" />
         <div className="mt-1 text-xs font-semibold uppercase tracking-[0.4em] text-muted-foreground">Kassa 24/7</div>
-      </div>
-      <div className="relative flex gap-2.5">
-        {[0, 1, 2].map((i) => (
-          <span key={i} className="animate-dot size-2.5 rounded-full bg-primary" style={{ animationDelay: `${i * 0.15}s` }} />
-        ))}
       </div>
     </div>
   );
@@ -53,6 +47,15 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
         w.setBackgroundColor?.("#050d07");
         w.setBottomBarColor?.("#050d07");
         w.disableVerticalSwipes?.();
+        // Full screen on phones (Telegram 8.0+); desktop keeps its normal window.
+        const phone = w.platform === "ios" || w.platform === "android";
+        if (phone && !w.isFullscreen && w.isVersionAtLeast?.("8.0")) {
+          try {
+            w.requestFullscreen?.();
+          } catch {
+            /* older client */
+          }
+        }
       }
       setTg(w);
     });
@@ -91,6 +94,12 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
     } else bb.hide();
     return () => bb.offClick(back);
   }, [page, tg]);
+
+  // Each screen starts at the top of the scroll area.
+  const scroller = useRef<HTMLElement>(null);
+  useEffect(() => {
+    scroller.current?.scrollTo({ top: 0 });
+  }, [page, tab]);
 
   const t = useCallback((key: TKey, vars?: Record<string, string | number>) => translate(lang, key, vars), [lang]);
 
@@ -139,41 +148,36 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
 
   return (
     <Ctx.Provider value={ctx}>
-      <div className="relative min-h-dvh">
-        <img
-          src={bg}
-          alt=""
-          width={864}
-          height={1536}
-          className="pointer-events-none fixed inset-0 -z-20 h-full w-full object-cover"
-        />
-        <div className="pointer-events-none fixed inset-0 -z-20 bg-gradient-to-b from-background/30 via-background/45 to-background/80" />
-        <CoinField />
+      <div className="fixed inset-0 flex flex-col overflow-hidden">
+        <LiveBackdrop />
+        <div className="tg-safe-top shrink-0" />
         {ctx.boot.demo && (
           <div className="bg-gold/90 px-4 py-1.5 text-center text-xs font-medium text-gold-foreground">{t("demoBanner")}</div>
         )}
-        <main key={page ?? tab} className="animate-rise mx-auto max-w-md px-4 pb-32 pt-5">
-          {page === "profile" ? (
-            <Profile onReferrals={() => setSheet("refs")} onLang={() => setSheet("lang")} onHelp={() => setPage("help")} />
-          ) : page === "help" ? (
-            <Help onBack={() => setPage(null)} />
-          ) : page === "videos" ? (
-            <Videos onBack={() => setPage(null)} onPlay={setVideo} />
-          ) : tab === "home" ? (
-            <Home
-              onTopup={() => setSheet("topup")}
-              onWithdraw={() => setSheet("withdraw")}
-              onProfile={() => setPage("profile")}
-              onVideos={() => setPage("videos")}
-              onHelp={() => setPage("help")}
-            />
-          ) : tab === "services" ? (
-            <Services onOpen={(b, m) => setBkOpen({ bk: b, mode: m })} />
-          ) : tab === "history" ? (
-            <History />
-          ) : (
-            <NewTab />
-          )}
+        <main ref={scroller} className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div key={page ?? tab} className="animate-rise mx-auto max-w-md px-4 pb-32 pt-3">
+            {page === "profile" ? (
+              <Profile onReferrals={() => setSheet("refs")} onLang={() => setSheet("lang")} onHelp={() => setPage("help")} />
+            ) : page === "help" ? (
+              <Help onBack={() => setPage(null)} />
+            ) : page === "videos" ? (
+              <Videos onBack={() => setPage(null)} onPlay={setVideo} />
+            ) : tab === "home" ? (
+              <Home
+                onTopup={() => setSheet("topup")}
+                onWithdraw={() => setSheet("withdraw")}
+                onProfile={() => setPage("profile")}
+                onVideos={() => setPage("videos")}
+                onHelp={() => setPage("help")}
+              />
+            ) : tab === "services" ? (
+              <Services onOpen={(b, m) => setBkOpen({ bk: b, mode: m })} />
+            ) : tab === "history" ? (
+              <History />
+            ) : (
+              <NewTab />
+            )}
+          </div>
         </main>
         <NavBar tab={page ? "" : tab} setTab={goTab} />
 

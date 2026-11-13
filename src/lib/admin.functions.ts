@@ -15,8 +15,8 @@ import { VIDEO_SLOT_IDS } from "./videos";
 import { verifyInitData } from "./server/initdata.server";
 import { parseAdminIds } from "./server/admins";
 import { approveRequest, isTelegramAdmin, rejectRequest } from "./server/requests.server";
-import { cashdeskBalance, cashdeskFindUser, serverPublicIp } from "./server/cashdesk.server";
-import { loadCashdeskCreds, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
+import { cashdeskBalance, cashdeskFindUser, cashdeskVerdict, serverPublicIp } from "./server/cashdesk.server";
+import { loadCashdeskCreds, loadCashdeskDraft, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
   return { configured: adminConfigured(), loggedIn: await isAdmin() };
@@ -527,12 +527,36 @@ export const adminSaveCashdesk = createServerFn({ method: "POST" })
   });
 
 export const adminTestCashdesk = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ playerId: z.string().trim().regex(/^\d{0,15}$/) }).parse(d))
+  .inputValidator((d) =>
+    z
+      .object({
+        playerId: z.string().trim().regex(/^\d{0,15}$/),
+        // Unsaved form values; empty = use the saved one. Never echoed back.
+        cashdeskId: z.string().trim().regex(/^\d{0,15}$/).optional(),
+        cashierPass: z.string().max(200).optional(),
+        hash: z.string().max(300).optional(),
+        apiUrl: z.union([z.literal(""), z.string().trim().url().startsWith("https://").max(300)]).optional(),
+        lng: z.string().trim().max(5).optional(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data }) => {
     await requireAdmin();
-    const creds = await loadCashdeskCreds("linebet");
-    if (!creds) return { configured: false as const, serverIp: await serverPublicIp() };
+    // Read-only check: asks the cashdesk balance and (optionally) looks a player up. No money moves.
+    const { creds, missing } = await loadCashdeskDraft("linebet", {
+      CASHDESK_ID: data.cashdeskId,
+      CASHIER_PASS: data.cashierPass,
+      HASH: data.hash,
+      API_URL: data.apiUrl,
+      LNG: data.lng,
+    });
+    if (!creds) return { verdict: cashdeskVerdict({ missing }), serverIp: await serverPublicIp(), balance: null, checkedAt: Date.now() };
     const [balance, serverIp] = await Promise.all([cashdeskBalance(creds), serverPublicIp()]);
     const player = data.playerId && balance.ok ? await cashdeskFindUser(creds, data.playerId) : undefined;
-    return { configured: true as const, balance, serverIp, player: player === undefined ? undefined : player };
+    return {
+      verdict: cashdeskVerdict({ missing, balance, player }),
+      serverIp,
+      balance: balance.ok ? { balance: balance.balance, limit: balance.limit } : null,
+      checkedAt: Date.now(),
+    };
   });

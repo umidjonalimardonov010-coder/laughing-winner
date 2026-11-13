@@ -3,7 +3,6 @@ import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import type { Bookmaker } from "./context";
-import coin from "@/assets/coin-gold.webp";
 
 export function Glass({ className, children, onClick }: { className?: string; children: ReactNode; onClick?: () => void }) {
   const Comp = onClick ? "button" : "div";
@@ -121,51 +120,64 @@ export function Wordmark({ className }: { className?: string }) {
   );
 }
 
-export function Coin({ size, className, spin = 3.5, delay = 0 }: { size: number; className?: string; spin?: number; delay?: number }) {
+/** Screen title bar that stays pinned to the top while the list scrolls under it. */
+export function StickyHeader({ children }: { children: ReactNode }) {
   return (
-    <span className={cn("inline-block [perspective:600px]", className)} style={{ width: size, height: size }}>
-      <img
-        src={coin}
-        alt=""
-        aria-hidden
-        width={size}
-        height={size}
-        className="coin-spin block size-full"
-        style={{ ["--spin" as string]: `${spin}s`, ["--delay" as string]: `${-delay}s` }}
-      />
+    <div className="sticky top-0 z-30 -mx-4 -mt-3 border-b border-primary/15 bg-background px-4 pb-3 pt-3 shadow-[0_12px_24px_-12px_oklch(0_0_0/0.7)] backdrop-blur-xl">
+      {children}
+    </div>
+  );
+}
+
+/** Small glossy LINEBET mark used in the header and splash. */
+export function BrandMark({ size = 28, className }: { size?: number; className?: string }) {
+  return (
+    <span
+      className={cn("btn-pro relative inline-flex shrink-0 items-center justify-center rounded-[30%]", className)}
+      style={{ width: size, height: size }}
+      aria-hidden
+    >
+      <svg viewBox="0 0 24 24" className="size-[62%]" fill="currentColor">
+        <path d="M13.5 2 4 13.6h6.2L9 22l10-12.4h-6.3z" />
+      </svg>
     </span>
   );
 }
 
-// Coins floating and turning over the background; everything else stays still.
-const COINS = [
-  { top: "9%", left: "6%", size: 34, spin: 3.2, float: 6.5, delay: 0.2, tilt: -8, blur: false },
-  { top: "16%", left: "82%", size: 58, spin: 4.2, float: 7.5, delay: 1.1, tilt: 10, blur: false },
-  { top: "37%", left: "-3%", size: 64, spin: 4.8, float: 8, delay: 2.3, tilt: 12, blur: true },
-  { top: "47%", left: "88%", size: 28, spin: 2.8, float: 5.5, delay: 0.7, tilt: -6, blur: false },
-  { top: "64%", left: "10%", size: 40, spin: 3.6, float: 6.8, delay: 1.7, tilt: 6, blur: false },
-  { top: "74%", left: "76%", size: 76, spin: 5.2, float: 9, delay: 3.1, tilt: -12, blur: true },
-  { top: "88%", left: "40%", size: 24, spin: 2.6, float: 5, delay: 0.4, tilt: 4, blur: true },
-];
+// Live stadium backdrop: drifting green aurora, floodlight beams, a moving pitch grid and rising sparks.
+const SPARKS = Array.from({ length: 16 }, (_, i) => ({
+  left: `${(i * 37 + 11) % 100}%`,
+  size: 2 + ((i * 7) % 4),
+  dur: 9 + ((i * 5) % 9),
+  delay: (i * 1.7) % 12,
+  gold: i % 4 === 0,
+}));
 
-export function CoinField() {
+export function LiveBackdrop() {
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 mx-auto max-w-md overflow-hidden">
-      {COINS.map((c, i) => (
+    <div aria-hidden className="live-bg pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      <div className="live-aurora live-aurora-a" />
+      <div className="live-aurora live-aurora-b" />
+      <div className="live-aurora live-aurora-c" />
+      <div className="live-beam live-beam-l" />
+      <div className="live-beam live-beam-r" />
+      <div className="live-pitch">
+        <div className="live-pitch-grid" />
+      </div>
+      {SPARKS.map((p, i) => (
         <span
           key={i}
-          className={cn("coin-float absolute", c.blur && "opacity-70 blur-[1.5px]")}
+          className={cn("live-spark", p.gold && "live-spark-gold")}
           style={{
-            top: c.top,
-            left: c.left,
-            ["--float" as string]: `${c.float}s`,
-            ["--delay" as string]: `${-c.delay}s`,
-            ["--tilt" as string]: `${c.tilt}deg`,
+            left: p.left,
+            width: p.size,
+            height: p.size,
+            ["--dur" as string]: `${p.dur}s`,
+            ["--delay" as string]: `${-p.delay}s`,
           }}
-        >
-          <Coin size={c.size} spin={c.spin} delay={c.delay} />
-        </span>
+        />
       ))}
+      <div className="live-vignette" />
     </div>
   );
 }

@@ -15,3 +15,5 @@
 - [x] LINEBET design: green/gold theme, new background, spinning coins, pro buttons, new pictures
 - [x] Linebet API check explains 401 (wrong keys) / 403 (server IP not allowed) and shows server IP
 - [ ] Linebet API live — waiting for: cashier password in admin panel + Linebet allowing Railway's server IP
+- [x] Admin: safe "Ulanishni tekshirish" with step-by-step result (keys, server, IP, keys accepted, player)
+- [x] Wallet: full screen on phones, pinned headers (Tarix), no page bounce, live stadium background instead of coins

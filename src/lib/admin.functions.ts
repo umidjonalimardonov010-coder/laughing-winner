@@ -15,6 +15,8 @@ import { VIDEO_SLOT_IDS } from "./videos";
 import { verifyInitData } from "./server/initdata.server";
 import { parseAdminIds } from "./server/admins";
 import { approveRequest, isTelegramAdmin, rejectRequest } from "./server/requests.server";
+import { cashdeskBalance, cashdeskFindUser } from "./server/cashdesk.server";
+import { loadCashdeskCreds, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
   return { configured: adminConfigured(), loggedIn: await isAdmin() };
@@ -475,4 +477,62 @@ export const adminConnectBot = createServerFn({ method: "POST" })
     }).catch(() => undefined);
     await saveSettings({ public_url: base, bot_username: bot.username });
     return { ok: true, bot: bot.username };
+  });
+
+// ---------- Linebet cashdesk API (automatic deposit / withdraw) ----------
+// Secret values (cashier password, hash) are never sent back to the browser.
+export const adminCashdeskStatus = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  const panel = await panelCredValues("LINEBET");
+  const pick = (k: string) => panel[k]?.trim() || process.env[k]?.trim() || "";
+  const creds = await loadCashdeskCreds("linebet");
+  return {
+    configured: !!creds,
+    cashdeskId: pick("LINEBET_CASHDESK_ID"),
+    apiUrl: pick("LINEBET_API_URL"),
+    lng: pick("LINEBET_LNG"),
+    hasPass: !!pick("LINEBET_CASHIER_PASS"),
+    hasHash: !!pick("LINEBET_HASH"),
+  };
+});
+
+export const adminSaveCashdesk = createServerFn({ method: "POST" })
+  .inputValidator((d) =>
+    z
+      .object({
+        cashdeskId: z.string().trim().regex(/^\d{0,15}$/, "Kassa ID faqat raqam"),
+        cashierPass: z.string().max(200).optional(),
+        hash: z.string().max(300).optional(),
+        apiUrl: z.union([z.literal(""), z.string().trim().url().max(300)]),
+        lng: z.string().trim().max(5),
+        clear: z.boolean().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    if (data.clear) {
+      await savePanelCreds("LINEBET", { CASHDESK_ID: "", CASHIER_PASS: "", HASH: "", API_URL: "", LNG: "" });
+      return { ok: true };
+    }
+    await savePanelCreds("LINEBET", {
+      CASHDESK_ID: data.cashdeskId,
+      // Empty secret field = keep the saved one.
+      CASHIER_PASS: data.cashierPass?.trim() ? data.cashierPass : undefined,
+      HASH: data.hash?.trim() ? data.hash : undefined,
+      API_URL: data.apiUrl,
+      LNG: data.lng,
+    });
+    return { ok: true };
+  });
+
+export const adminTestCashdesk = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ playerId: z.string().trim().regex(/^\d{0,15}$/) }).parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    const creds = await loadCashdeskCreds("linebet");
+    if (!creds) return { configured: false as const };
+    const balance = await cashdeskBalance(creds);
+    const player = data.playerId ? await cashdeskFindUser(creds, data.playerId) : undefined;
+    return { configured: true as const, balance, player: player === undefined ? undefined : player };
   });

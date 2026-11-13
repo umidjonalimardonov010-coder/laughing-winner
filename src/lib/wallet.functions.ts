@@ -15,13 +15,13 @@ import { countReferrals, listReferrals } from "./server/users.server";
 import { signedUploadUrl, signedUrls } from "./server/media.server";
 import { notifyAdminsNewRequest, notifyUserStatus } from "./server/notify.server";
 import {
-  cashdeskCreds,
   cashdeskDeposit,
   cashdeskFindUser,
   cashdeskPayout,
   depositSumma,
   type CashdeskResult,
 } from "./server/cashdesk.server";
+import { loadCashdeskCreds } from "./server/cashdesk-config.server";
 import { TX_COLS, type TxRow } from "./server/tx.server";
 import { VIDEO_SLOTS } from "./videos";
 import { ensureMigrations } from "./server/migrations.server";
@@ -133,7 +133,7 @@ export const walletCheckAccount = createServerFn({ method: "POST" })
     await auth(data.initData);
     const ok = accountSchema.safeParse(data.accountId).success;
     if (!ok) return { ok, name: null as string | null };
-    const creds = cashdeskCreds(data.bookmakerId);
+    const creds = await loadCashdeskCreds(data.bookmakerId);
     if (!creds) return { ok, name: null as string | null };
     const found = await cashdeskFindUser(creds, data.accountId.trim());
     // No clear answer from the API: let the user continue, the deposit call checks again.
@@ -195,7 +195,7 @@ export const walletBkDeposit = createServerFn({ method: "POST" })
       friendlyError(e);
     }
     if (!tx) throw new Error("request_failed");
-    const creds = cashdeskCreds(bk.id);
+    const creds = await loadCashdeskCreds(bk.id);
     if (creds) {
       const r = await cashdeskDeposit(creds, data.accountId, depositSumma(Number(tx.amount), Number(tx.bonus), Number(tx.fee)));
       return finishAuto(tx, bk.name, r, 0);
@@ -220,7 +220,7 @@ export const walletBkWithdraw = createServerFn({ method: "POST" })
       returning ${TX_COLS()}`;
     const tx = rows[0];
     if (!tx) throw new Error("request_failed");
-    const creds = cashdeskCreds(bk.id);
+    const creds = await loadCashdeskCreds(bk.id);
     if (creds) {
       const r = await cashdeskPayout(creds, data.accountId, data.code);
       return finishAuto(tx, bk.name, r, Number(bk.withdraw_fee_percent));

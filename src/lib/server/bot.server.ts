@@ -4,7 +4,7 @@ import { maybeOne, sql, ts } from "./db.server";
 import { getSettings, publicBase, saveSettings, type Settings } from "./settings.server";
 import { approveRequest, isTelegramAdmin, rejectRequest } from "./requests.server";
 import { cleanCardNumber } from "./admins";
-import { cashdeskCreds } from "./cashdesk.server";
+import { loadCashdeskCreds } from "./cashdesk-config.server";
 import { escapeHtml, tg } from "./telegram.server";
 import { listReferrals, upsertTgUser, type TgFrom } from "./users.server";
 import { signedUrl } from "./media.server";
@@ -114,7 +114,7 @@ function mainKeyboard(l: L, admin = false) {
     keyboard: [
       [{ text: m.deposit }, { text: m.withdraw }],
       [{ text: m.history }, { text: m.support }],
-      [{ text: m.referral }, { text: m.rates }],
+      [{ text: m.referral }],
       ...(admin ? [[{ text: ADMIN_BUTTON }]] : []),
     ],
     resize_keyboard: true,
@@ -199,7 +199,8 @@ async function sendAdminPanel(chatId: number, s: Settings, base: string) {
       "⚠️ <b>To'ldirish kartasi kiritilmagan</b> — mijozlar hamyonni to'ldira olmaydi.",
       "Kiritish: <code>/karta 8600123412341234 ISM FAMILIYA</code>",
     );
-  if (!cashdeskCreds("linebet")) lines.push("", "⚠️ Linebet kassa kalitlari kiritilmagan — Linebet so'rovlarini qo'lda tasdiqlaysiz.");
+  if (!(await loadCashdeskCreds("linebet")))
+    lines.push("", "⚠️ Linebet API kiritilmagan — so'rovlarni qo'lda tasdiqlaysiz. Kiritish: panel → Sozlamalar → Linebet API.");
   lines.push("", "Barcha boshqaruv (so'rovlar, foydalanuvchilar, balans, bukmekerlar, videolar, sozlamalar) panelda:");
   await tg("sendMessage", {
     chat_id: chatId,

@@ -1,7 +1,8 @@
 // Bookmaker cashdesk API (1xBet-family "CashdeskBotAPI", used by LINEBET).
-// Credentials come only from server environment variables (Railway → Variables):
+// Credentials come from the admin panel (Sozlamalar → Linebet API, stored server-side in
+// app_settings) or from server environment variables (Railway → Variables):
 //   LINEBET_CASHDESK_ID, LINEBET_CASHIER_PASS, LINEBET_HASH, optional LINEBET_API_URL, LINEBET_LNG.
-// When they are missing the bookmaker stays in manual mode (admin handles requests by hand).
+// Panel values win over env. When neither is set the bookmaker stays in manual mode.
 import { createHash } from "node:crypto";
 
 const DEFAULT_API_URL = "https://partners.servcul.com/CashdeskBotAPI/";
@@ -11,7 +12,20 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 export type CashdeskCreds = { apiUrl: string; cashdeskId: string; cashierPass: string; hash: string; lng: string };
 
 /** Bookmakers that have an automatic cashdesk; key = bookmakers.id, value = env prefix. */
-const AUTO_BOOKMAKERS: Record<string, string> = { linebet: "LINEBET" };
+export const AUTO_BOOKMAKERS: Record<string, string> = { linebet: "LINEBET" };
+
+/** Credential fields; env var = `<PREFIX>_<suffix>`, app_settings key = lowercase of that. */
+export const CRED_SUFFIXES = ["CASHDESK_ID", "CASHIER_PASS", "HASH", "API_URL", "LNG"] as const;
+
+/** Env overlaid with non-empty panel values (panel wins). Pure, unit-tested. */
+export function mergeCredSources(
+  env: Record<string, string | undefined>,
+  panel: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = { ...env };
+  for (const [k, v] of Object.entries(panel)) if (v && v.trim()) out[k] = v;
+  return out;
+}
 
 export function cashdeskCreds(bookmakerId: string, env: Record<string, string | undefined> = process.env): CashdeskCreds | null {
   const prefix = AUTO_BOOKMAKERS[bookmakerId];
@@ -39,6 +53,17 @@ export function signDeposit(userId: string, summa: number, c: CashdeskCreds) {
     sha256(`hash=${c.hash}&lng=${c.lng}&userid=${userId}`) +
       md5(`summa=${summa}&cashierpass=${c.cashierPass}&cashdeskid=${c.cashdeskId}`),
   );
+}
+export function signBalance(dt: string, c: CashdeskCreds) {
+  return sha256(
+    sha256(`hash=${c.hash}&cashierpass=${c.cashierPass}&dt=${dt}`) +
+      md5(`dt=${dt}&cashierpass=${c.cashierPass}&cashdeskid=${c.cashdeskId}`),
+  );
+}
+/** UTC time as the cashdesk API expects: yyyy.MM.dd HH:mm:ss */
+export function cashdeskDt(d = new Date()) {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}.${p(d.getUTCMonth() + 1)}.${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
 }
 export function signPayout(userId: string, code: string, c: CashdeskCreds) {
   return sha256(
@@ -132,5 +157,21 @@ export async function cashdeskPayout(c: CashdeskCreds, userId: string, code: str
     return classifyResponse(r.status, r.json);
   } catch (e) {
     return { kind: "unknown", message: e instanceof Error ? e.message.slice(0, 200) : "network" };
+  }
+}
+
+export async function cashdeskBalance(c: CashdeskCreds): Promise<{ ok: true; balance: number; limit: number } | { ok: false; message: string }> {
+  try {
+    const dt = cashdeskDt();
+    const q = `Cashdesk/${encodeURIComponent(c.cashdeskId)}/Balance?confirm=${md5(`${c.cashdeskId}:${c.hash}`)}&dt=${encodeURIComponent(dt)}`;
+    const r = await call(c, "GET", q, signBalance(dt, c));
+    const j = (r.json ?? {}) as Record<string, unknown>;
+    const bal = j["Balance"] ?? j["balance"];
+    if (r.status >= 200 && r.status < 300 && bal !== undefined) {
+      return { ok: true, balance: Number(bal) || 0, limit: Number(j["Limit"] ?? j["limit"] ?? 0) || 0 };
+    }
+    return { ok: false, message: String(j["Message"] ?? j["message"] ?? `HTTP ${r.status}`).slice(0, 200) };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message.slice(0, 200) : "network" };
   }
 }

@@ -25,6 +25,7 @@ import {
 import { TX_COLS, type TxRow } from "./server/tx.server";
 import { VIDEO_SLOTS } from "./videos";
 import { ensureMigrations } from "./server/migrations.server";
+import { resolveBotUsername } from "./server/bot-username.server";
 
 const initSchema = z.object({ initData: z.string().max(8192) });
 
@@ -71,7 +72,7 @@ export const walletBootstrap = createServerFn({ method: "POST" })
         card_holder: s.card_holder,
         support_username: s.support_username.replace(/^@/, ""),
         channel_username: s.channel_username.replace(/^@/, ""),
-        bot_username: s.bot_username,
+        bot_username: await resolveBotUsername(s),
         deposit_bonus_percent: num(s.deposit_bonus_percent, 0),
         referral_percent: num(s.referral_percent, 0),
         min_topup: num(s.min_topup, 5000),

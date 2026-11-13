@@ -11,3 +11,4 @@
 - [x] Put code on GitHub (laughing-winner repo, pushed via GitHub connector)
 - [x] Telegram admin: 8787603995 manages everything — /admin opens the panel signed in, ✅/❌ under each alert, receipt photo, /karta sets the top-up card
 - [ ] Top-up card number — owner enters it with /karta (wallet top-up is blocked until then)
+- [x] Referral: real invite link (https://t.me/<bot>?start=<id>) + share button; bot name fetched from Telegram if not saved

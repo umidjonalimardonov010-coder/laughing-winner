@@ -30,12 +30,10 @@ import { formatDateTime, formatSom, txDirection, type TxType } from "@/lib/forma
 import { FAQ, LANGS } from "@/lib/i18n";
 import { VIDEO_SLOTS } from "@/lib/videos";
 import { walletHistory } from "@/lib/wallet.functions";
+import { referralLink } from "@/lib/referral";
 import { useWallet, type Bookmaker } from "./context";
 import { BkLogo, Glass, IconTile } from "./ui";
 
-function refLink(bot: string, id: number) {
-  return bot ? `t.me/${bot}?start=${id}` : `?start=${id}`;
-}
 
 export function Home({
   onTopup,
@@ -52,7 +50,7 @@ export function Home({
 }) {
   const { boot, t, haptic } = useWallet();
   const { user, settings } = boot;
-  const link = refLink(settings.bot_username, user.id);
+  const link = referralLink(settings.bot_username, user.id);
   const videoCount = boot.videoSlots.length;
   return (
     <div className="space-y-4">
@@ -115,12 +113,14 @@ export function Home({
       <div className="flex gap-3">
         <div className="glass flex h-14 min-w-0 flex-1 items-center gap-2 rounded-2xl px-4 text-sm">
           <Link2 className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">{link}</span>
+          <span className="truncate">{link ? link.replace(/^https:\/\//, "") : "…"}</span>
         </div>
         <button
           aria-label="copy"
+          disabled={!link}
           onClick={() => {
-            navigator.clipboard?.writeText(link.startsWith("t.me") ? `https://${link}` : link);
+            if (!link) return;
+            navigator.clipboard?.writeText(link);
             haptic("success");
             toast.success(t("copied"));
           }}

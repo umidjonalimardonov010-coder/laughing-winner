@@ -6,8 +6,10 @@ import { approveRequest, isTelegramAdmin, rejectRequest } from "./requests.serve
 import { cleanCardNumber } from "./admins";
 import { cashdeskCreds } from "./cashdesk.server";
 import { escapeHtml, tg } from "./telegram.server";
-import { countReferrals, listReferrals, upsertTgUser, type TgFrom } from "./users.server";
+import { listReferrals, upsertTgUser, type TgFrom } from "./users.server";
 import { signedUrl } from "./media.server";
+import { resolveBotUsername } from "./bot-username.server";
+import { referralLink, shareLink } from "@/lib/referral";
 import { formatDateTime, formatSom, maskCard } from "@/lib/format";
 
 type L = "uz" | "ru";
@@ -50,6 +52,8 @@ const TXT = {
     referral: (bal: number, link: string, p: string, earned: number) =>
       `Balans: ${formatSom(bal)} UZS\n\nSizning referal havolangiz:\n${link}\n\nDo'stlaringizni taklif qiling va ularning har bir hisobi to'ldirilganda ${p}% bonus oling!\n\n🎁 Referal ro'yxatdan o'tish bonusi: ${formatSom(earned)} UZS\n\nℹ️ Mablag'ni yechish faqat Mini App orqali mavjud.`,
     myRefs: "Mening referallarim",
+    shareBtn: "📤 Do'stlarga yuborish",
+    shareText: "Kassa 24/7 — bukmeker hisobini tez to'ldirish va yechish. Shu havola orqali qo'shiling:",
     refsEmpty: "Sizda hali referallar yo'q.",
     refsTitle: (n: number) => `👥 Sizning referallaringiz: ${n} ta`,
     ratesDeposit: "📊 To'ldirish kurslari:",
@@ -83,6 +87,8 @@ const TXT = {
     referral: (bal: number, link: string, p: string, earned: number) =>
       `Баланс: ${formatSom(bal)} UZS\n\nВаша реферальная ссылка:\n${link}\n\nПриглашайте друзей и получайте ${p}% бонус с каждого их пополнения!\n\n🎁 Реферальный бонус: ${formatSom(earned)} UZS\n\nℹ️ Вывод средств доступен только через Mini App.`,
     myRefs: "Мои рефералы",
+    shareBtn: "📤 Отправить друзьям",
+    shareText: "Kassa 24/7 — быстрое пополнение и вывод в букмекерах. Присоединяйтесь по ссылке:",
     refsEmpty: "У вас пока нет рефералов.",
     refsTitle: (n: number) => `👥 Ваши рефералы: ${n}`,
     ratesDeposit: "📊 Курсы пополнения:",
@@ -416,12 +422,11 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   }
 
   if (action === "referral") {
-    const botUsername = s.bot_username || "";
-    const link = botUsername ? `https://t.me/${botUsername}?start=${user.id}` : `/start ${user.id}`;
-    await countReferrals(user.id);
-    const caption = t.referral(user.balance, link, s.referral_percent || "2", user.referral_earned);
+    const link = referralLink(await resolveBotUsername(s), user.id);
+    const caption = t.referral(user.balance, link || "—", s.referral_percent || "2", user.referral_earned);
     return sendSlotVideo(chatId, "bot_referral", escapeHtml(caption), {
       inline_keyboard: [
+        ...(link ? [[{ text: t.shareBtn, url: shareLink(link, t.shareText) }]] : []),
         [{ text: t.myRefs, callback_data: "refs" }],
         [{ text: t.backMenu, callback_data: "menu" }],
       ],

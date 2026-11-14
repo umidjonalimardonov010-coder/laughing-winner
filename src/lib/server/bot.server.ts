@@ -8,6 +8,7 @@ import { loadCashdeskCreds } from "./cashdesk-config.server";
 import { escapeHtml, tg } from "./telegram.server";
 import { listReferrals, savePhone, upsertTgUser, type TgFrom } from "./users.server";
 import { isOwnContact, normalizePhone } from "@/lib/verification";
+import { channelFromBotPromotion, channelFromForward, type ChannelRef } from "@/lib/channel-link";
 import { signedUrl } from "./media.server";
 import { resolveBotUsername } from "./bot-username.server";
 import { referralLink, shareLink } from "@/lib/referral";
@@ -313,11 +314,44 @@ async function sendPhoneRequest(chatId: number, l: L, base: string) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Update = any;
 
+// Saves the private channel for withdrawal selfies and checks the bot can post there.
+async function linkSelfieChannel(ch: ChannelRef, adminChatId: number) {
+  const name = escapeHtml(ch.title || String(ch.id));
+  try {
+    await tg("sendMessage", {
+      chat_id: ch.id,
+      text: "✅ <b>Kanal ulandi.</b>\nPul chiqarishdagi yuz suratlari va so'rov ma'lumotlari shu yerga keladi.",
+      parse_mode: "HTML",
+    });
+  } catch {
+    await tg("sendMessage", {
+      chat_id: adminChatId,
+      text: `❌ <b>${name}</b> kanaliga yozib bo'lmadi.\n\nBotni kanalga <b>admin</b> qiling va «Xabar yuborish» huquqini yoqing, keyin kanaldagi istalgan postni botga qayta forward qiling.`,
+      parse_mode: "HTML",
+    }).catch(() => undefined);
+    return;
+  }
+  await saveSettings({ selfie_channel_id: String(ch.id) });
+  await tg("sendMessage", {
+    chat_id: adminChatId,
+    text: `✅ Yuz suratlari kanali ulandi: <b>${name}</b>\nID: <code>${ch.id}</code>\n\nEndi har bir pul chiqarish so'rovidagi selfi shu kanalga boradi.`,
+    parse_mode: "HTML",
+  }).catch(() => undefined);
+}
+
 export async function handleUpdate(update: Update, fallbackOrigin: string) {
   await ensureMigrations();
   const s = await getSettings();
   const base = httpsBase(s, fallbackOrigin);
   const walletUrl = `${base}/app`;
+
+  // Bot made admin of a channel by one of our admins → that channel receives the selfies.
+  if (update.my_chat_member) {
+    const ch = channelFromBotPromotion(update.my_chat_member);
+    const by = update.my_chat_member.from?.id;
+    if (ch && typeof by === "number" && (await isTelegramAdmin(by, s))) await linkSelfieChannel(ch, by);
+    return;
+  }
 
   if (update.callback_query) {
     const cq = update.callback_query;
@@ -394,6 +428,10 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   }
 
   if (text === "/lang") return sendLanguagePicker(chatId);
+
+  // Admin forwards any post from the private channel → the bot links it for selfies.
+  const fwdChannel = channelFromForward(msg);
+  if (fwdChannel && (await isTelegramAdmin(from.id, s))) return linkSelfieChannel(fwdChannel, chatId);
 
   const isAdminCmd = text === ADMIN_BUTTON || /^\/admin(@\w+)?$/i.test(text);
   const isCardCmd = /^\/karta(@\w+)?(\s|$)/i.test(text);

@@ -20,4 +20,5 @@
 - [x] Mandatory phone: bot asks own contact before menu; wallet asks too; no money ops without phone
 - [x] Withdraw selfie: front camera step in card + Linebet withdraw; photo + details sent to private channel
 - [x] Pro visuals/animations for the new steps; push to GitHub
-- [ ] Selfie channel ID — owner enters it in admin panel → Sozlamalar (until then selfies go to admins)
+- [x] Selfie channel links itself: admin adds bot as channel admin, or forwards a channel post to the bot (invite links can't give the ID)
+- [ ] Selfie channel live — owner adds the bot as admin to the private channel (until then selfies go to admins)

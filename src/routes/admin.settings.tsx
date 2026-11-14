@@ -60,7 +60,7 @@ const GROUPS: { title: string; fields: { key: string; label: string; hint?: stri
       {
         key: "selfie_channel_id",
         label: "Yuz suratlari kanali (yopiq kanal)",
-        hint: "Pul chiqarishdagi selfi, ism, telefon, so'rov raqami, karta/ID va summa shu kanalga boradi. Botni kanalga admin qiling. Yopiq kanal ID si -100 bilan boshlanadi (masalan -1001234567890). Bo'sh bo'lsa — adminlarga yuboriladi.",
+        hint: "Pul chiqarishdagi selfi, ism, telefon, so'rov raqami, karta/ID va summa shu kanalga boradi. Eng oson yo'li: botni kanalga admin qiling — ID o'zi yoziladi. Yoki kanaldagi istalgan postni botga forward qiling. Kanal havolasi (t.me/+...) emas, ID kerak: -100 bilan boshlanadi. Bo'sh bo'lsa — adminlarga yuboriladi.",
         placeholder: "-1001234567890",
       },
     ],

@@ -2,6 +2,7 @@
 // Each step runs once, recorded in public.app_migrations; safe to call on every request.
 import { sql } from "./db.server";
 import { withOwnerAdmin } from "./admins";
+import { tg, telegramMode, webhookSecret } from "./telegram.server";
 
 const STEPS: { id: string; run: () => Promise<unknown> }[] = [
   {
@@ -27,6 +28,27 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
     // Withdrawal selfie (front camera photo) kept with the request.
     id: "2026-11-14-transactions-selfie",
     run: () => sql`alter table public.transactions add column if not exists selfie_path text`,
+  },
+  {
+    // The bot also hears "added as channel admin" (my_chat_member) so the selfie channel links itself.
+    // Keeps the current webhook address; a failure here must not block other steps.
+    id: "2026-11-14-webhook-my-chat-member",
+    run: async () => {
+      if (telegramMode() === "none") return;
+      try {
+        const info = await tg<{ url?: string; allowed_updates?: string[] }>("getWebhookInfo");
+        if (!info.url) return;
+        await tg("setWebhook", {
+          url: info.url,
+          secret_token: await webhookSecret(),
+          allowed_updates: ["message", "callback_query", "my_chat_member"],
+          max_connections: 100,
+          drop_pending_updates: false,
+        });
+      } catch (e) {
+        console.error("[migrations] webhook my_chat_member", e);
+      }
+    },
   },
 ];
 

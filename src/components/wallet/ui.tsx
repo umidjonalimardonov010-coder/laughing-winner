@@ -64,7 +64,7 @@ export function BottomSheet({
   return (
     <V.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={false} repositionInputs={false}>
       <V.Portal>
-        <V.Overlay className="fixed inset-0 z-50 bg-background/70 backdrop-blur-sm" />
+        <V.Overlay className="fixed inset-0 z-50 bg-background/80" />
         <V.Content className="glass-solid fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] max-w-md flex-col rounded-t-[2rem] outline-none">
           <div className="mx-auto mt-3 h-1.5 w-12 shrink-0 rounded-full bg-muted-foreground/40" />
           <div className="flex items-center gap-3 px-5 pb-3 pt-4">
@@ -123,7 +123,7 @@ export function Wordmark({ className }: { className?: string }) {
 /** Screen title bar that stays pinned to the top while the list scrolls under it. */
 export function StickyHeader({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky top-0 z-30 -mx-4 -mt-3 border-b border-primary/15 bg-background px-4 pb-3 pt-3 shadow-[0_12px_24px_-12px_oklch(0_0_0/0.7)] backdrop-blur-xl">
+    <div className="sticky top-0 z-30 -mx-4 -mt-3 border-b border-primary/15 bg-background px-4 pb-3 pt-3 shadow-[0_12px_24px_-12px_oklch(0_0_0/0.7)]">
       {children}
     </div>
   );
@@ -145,7 +145,7 @@ export function BrandMark({ size = 28, className }: { size?: number; className?:
 }
 
 // Live stadium backdrop: drifting green aurora, floodlight beams, a moving pitch grid and rising sparks.
-const SPARKS = Array.from({ length: 16 }, (_, i) => ({
+const SPARKS = Array.from({ length: 10 }, (_, i) => ({
   left: `${(i * 37 + 11) % 100}%`,
   size: 2 + ((i * 7) % 4),
   dur: 9 + ((i * 5) % 9),
@@ -162,7 +162,9 @@ export function LiveBackdrop() {
       <div className="live-beam live-beam-l" />
       <div className="live-beam live-beam-r" />
       <div className="live-pitch">
-        <div className="live-pitch-grid" />
+        <div className="live-pitch-plane">
+          <div className="live-pitch-grid" />
+        </div>
       </div>
       {SPARKS.map((p, i) => (
         <span

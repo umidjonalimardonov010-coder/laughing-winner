@@ -26,6 +26,7 @@ import { TX_COLS, type TxRow } from "./server/tx.server";
 import { VIDEO_SLOTS } from "./videos";
 import { ensureMigrations } from "./server/migrations.server";
 import { resolveBotUsername } from "./server/bot-username.server";
+import { cached } from "./server/memo.server";
 
 const initSchema = z.object({ initData: z.string().max(8192) });
 
@@ -33,13 +34,18 @@ export const walletBootstrap = createServerFn({ method: "POST" })
   .inputValidator((d) => initSchema.parse(d))
   .handler(async ({ data }) => {
     await ensureMigrations();
-    const { user, demo } = await auth(data.initData);
-    const s = await getSettings();
-    const [bks, vids, refs] = await Promise.all([
-      sql<Bookmaker[]>`select ${BOOKMAKER_COLS()} from public.bookmakers where is_active order by sort_order`,
-      sql<{ slot: string; storage_path: string | null }[]>`select slot, storage_path from public.videos`,
-      countReferrals(user.id),
+    // Everything independent runs at once; the shared lists come from a short cache.
+    const [{ user, demo }, s, bks, vids] = await Promise.all([
+      auth(data.initData),
+      getSettings(),
+      cached("wallet-bookmakers", 15_000, () =>
+        sql<Bookmaker[]>`select ${BOOKMAKER_COLS()} from public.bookmakers where is_active order by sort_order`.then((r) => [...r]),
+      ),
+      cached("wallet-videos", 15_000, () =>
+        sql<{ slot: string; storage_path: string | null }[]>`select slot, storage_path from public.videos`.then((r) => [...r]),
+      ),
     ]);
+    const [refs, botUsername] = await Promise.all([countReferrals(user.id), resolveBotUsername(s)]);
     const logoMap = await signedUrls(
       "media",
       bks.map((b) => b.logo_url ?? "").filter(Boolean),
@@ -72,7 +78,7 @@ export const walletBootstrap = createServerFn({ method: "POST" })
         card_holder: s.card_holder,
         support_username: s.support_username.replace(/^@/, ""),
         channel_username: s.channel_username.replace(/^@/, ""),
-        bot_username: await resolveBotUsername(s),
+        bot_username: botUsername,
         deposit_bonus_percent: num(s.deposit_bonus_percent, 0),
         referral_percent: num(s.referral_percent, 0),
         min_topup: num(s.min_topup, 5000),

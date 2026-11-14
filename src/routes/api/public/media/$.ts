@@ -30,7 +30,7 @@ export const Route = createFileRoute("/api/public/media/$")({
         const headers: Record<string, string> = {
           "content-type": contentTypeFor(rel),
           "accept-ranges": "bytes",
-          "cache-control": "private, max-age=3600",
+          "cache-control": "private, max-age=21600",
           "content-length": String(info.size),
         };
         const range = request.headers.get("range");

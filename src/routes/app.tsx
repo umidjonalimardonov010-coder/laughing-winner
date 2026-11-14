@@ -18,6 +18,11 @@ export const Route = createFileRoute("/app")({
       { name: "twitter:card", content: "summary" },
       { name: "robots", content: "noindex" },
     ],
+    // Start downloading Telegram's script together with the page so the wallet opens sooner.
+    links: [
+      { rel: "preconnect", href: "https://telegram.org" },
+      { rel: "preload", as: "script", href: "https://telegram.org/js/telegram-web-app.js" },
+    ],
   }),
   component: AppPage,
 });

@@ -27,11 +27,13 @@ declare global {
   }
 }
 
+export const TG_SCRIPT = "https://telegram.org/js/telegram-web-app.js";
+
 export function loadTelegram(): Promise<TgWebApp | null> {
   return new Promise((resolve) => {
     if (window.Telegram?.WebApp) return resolve(window.Telegram.WebApp);
     const s = document.createElement("script");
-    s.src = "https://telegram.org/js/telegram-web-app.js";
+    s.src = TG_SCRIPT;
     s.async = true;
     s.onload = () => resolve(window.Telegram?.WebApp ?? null);
     s.onerror = () => resolve(null);

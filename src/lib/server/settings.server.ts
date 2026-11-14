@@ -1,4 +1,5 @@
 import { sql } from "./db.server";
+import { cached, clearCache } from "./memo.server";
 
 export const SETTING_KEYS = [
   "brand_name",
@@ -19,7 +20,12 @@ export const SETTING_KEYS = [
 export type SettingKey = (typeof SETTING_KEYS)[number];
 export type Settings = Record<SettingKey, string>;
 
-export async function getSettings(): Promise<Settings> {
+export function getSettings(): Promise<Settings> {
+  // Read on every wallet open and bot message: a short cache keeps the database calm under load.
+  return cached("settings", 10_000, readSettings);
+}
+
+async function readSettings(): Promise<Settings> {
   const rows = await sql<{ key: string; value: string }[]>`select key, value from public.app_settings`;
   const out = Object.fromEntries(SETTING_KEYS.map((k) => [k, ""])) as Settings;
   for (const row of rows) {
@@ -33,6 +39,7 @@ export async function saveSettings(values: Partial<Settings>) {
     .filter(([k, v]) => (SETTING_KEYS as readonly string[]).includes(k) && typeof v === "string")
     .map(([key, value]) => ({ key, value: value as string }));
   if (!rows.length) return;
+  clearCache();
   await sql.begin(async (tx) => {
     for (const { key, value } of rows) {
       await tx`insert into public.app_settings (key, value, updated_at)
@@ -40,6 +47,7 @@ export async function saveSettings(values: Partial<Settings>) {
         on conflict (key) do update set value = excluded.value, updated_at = now()`;
     }
   });
+  clearCache();
 }
 
 export function num(v: string | undefined, fallback: number): number {

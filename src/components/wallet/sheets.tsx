@@ -483,7 +483,7 @@ export function VideoModal({ slot, onClose }: { slot: string | null; onClose: ()
   const meta = VIDEO_SLOTS.find((v) => v.slot === slot)!;
   const url = boot.videos[slot];
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-md" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 p-4" onClick={onClose}>
       <div className="w-full max-w-md overflow-hidden rounded-[2rem] bg-card" onClick={(e) => e.stopPropagation()}>
         <div className="relative bg-background">
           <button onClick={onClose} aria-label={t("close")} className="absolute right-3 top-3 z-10 flex size-11 items-center justify-center rounded-full bg-background/60 text-foreground">

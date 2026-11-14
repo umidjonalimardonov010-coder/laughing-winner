@@ -76,7 +76,10 @@ function uploadPayload(bucket: Bucket, rel: string, exp: number) {
 export type SignedLink = { exp: number; sig: string };
 
 export function signRead(bucket: Bucket, rel: string, seconds: number): SignedLink {
-  const exp = Math.floor(Date.now() / 1000) + seconds;
+  // Round the expiry up so the same file keeps the same link for a while: the phone caches
+  // logos and videos instead of downloading them again on every wallet open.
+  const step = Math.max(60, Math.floor(seconds / 4));
+  const exp = Math.ceil((Math.floor(Date.now() / 1000) + seconds) / step) * step;
   return { exp, sig: makeSig(readPayload(bucket, rel, exp)) };
 }
 

@@ -16,7 +16,8 @@ function dbClient(): postgres.Sql {
       throw new Error(message);
     }
     client = postgres(url, {
-      max: 10,
+      // Enough parallel connections for busy hours; override with DB_POOL_MAX.
+      max: Number(process.env["DB_POOL_MAX"]) || 20,
       idle_timeout: 20,
       connect_timeout: 10,
       // Railway talks to the database over its private network.

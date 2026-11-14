@@ -5,6 +5,7 @@ import { z } from "zod";
 import { countOf, maybeOne, sql, ts } from "./server/db.server";
 import { adminConfigured, adminSession, isAdmin, passwordMatches, requireAdmin } from "./server/admin-session.server";
 import { getSettings, saveSettings, SETTING_KEYS } from "./server/settings.server";
+import { clearCache } from "./server/memo.server";
 import { removeMedia, signedUploadUrl, signedUrl, signedUrls } from "./server/media.server";
 import { ensureMigrations } from "./server/migrations.server";
 import { TX_COLS, type TxRow } from "./server/tx.server";
@@ -328,6 +329,7 @@ export const adminSaveBookmaker = createServerFn({ method: "POST" })
         max_amount = excluded.max_amount,
         sort_order = excluded.sort_order,
         is_active = excluded.is_active`;
+    clearCache("wallet-");
     return { ok: true };
   });
 
@@ -336,6 +338,7 @@ export const adminDeleteBookmaker = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     await sql`delete from public.bookmakers where id = ${data.id}`;
+    clearCache("wallet-");
     return { ok: true };
   });
 
@@ -381,6 +384,7 @@ export const adminSaveVideo = createServerFn({ method: "POST" })
           url = null,
           updated_at = now()`;
     }
+    clearCache("wallet-");
     if (old?.storage_path && old.storage_path !== data.path) await removeMedia("media", old.storage_path);
     return { ok: true };
   });

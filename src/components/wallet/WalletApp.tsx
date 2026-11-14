@@ -66,7 +66,10 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
     queryKey: ["wallet-boot", initData],
     queryFn: () => walletBootstrap({ data: { initData } }),
     enabled: tg !== undefined,
-    retry: 1,
+    retry: 2,
+    staleTime: 15_000,
+    // Balance refreshes quietly when the user comes back; the screen never blanks out.
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {
@@ -131,7 +134,8 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
 
   if (tg === undefined || q.isLoading) return <Splash />;
 
-  if (q.isError || !ctx) {
+  // Only a first load that failed shows this; a failed background refresh keeps the current screen.
+  if (!ctx) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 px-8 text-center">
         <div className="font-display text-2xl font-bold">{translate(lang, "openInTelegram")}</div>

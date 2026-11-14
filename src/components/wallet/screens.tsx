@@ -57,7 +57,7 @@ export function Home({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className="relative flex h-12 items-center gap-2 rounded-2xl border border-primary/30 bg-background/70 px-3 shadow-[var(--shadow-glow)] backdrop-blur">
+        <div className="relative flex h-12 items-center gap-2 rounded-2xl border border-primary/30 bg-background/90 px-3 shadow-[var(--shadow-glow)]">
           <BrandMark size={26} />
           <Wordmark className="text-lg" />
         </div>
@@ -453,7 +453,7 @@ export function NavBar({ tab, setTab }: { tab: string; setTab: (t: "home" | "ser
   ];
   return (
     <nav className="tg-safe-bottom fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md px-3">
-      <div className="grid grid-cols-4 rounded-[1.75rem] border border-primary/20 bg-background/85 p-2 shadow-[0_-10px_40px_-12px_oklch(0.74_0.22_142/0.35)] backdrop-blur-xl">
+      <div className="grid grid-cols-4 rounded-[1.75rem] border border-primary/20 bg-background/95 p-2 shadow-[0_-10px_40px_-12px_oklch(0.74_0.22_142/0.35)]">
         {items.map((it) => {
           const active = tab === it.id;
           const Icon = it.icon;

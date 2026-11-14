@@ -1,6 +1,18 @@
-import { sql, ts } from "./db.server";
+import { maybeOne, sql, ts } from "./db.server";
 import { verifyInitData } from "./initdata.server";
-import { upsertTgUser } from "./users.server";
+import { USER_COLS, upsertTgUser, type TgFrom, type TgUser } from "./users.server";
+
+// A known user whose names are unchanged and who was seen recently needs no write.
+const SEEN_REFRESH_MS = 10 * 60_000;
+export function needsUserWrite(u: TgUser | null, from: TgFrom, now = Date.now()): boolean {
+  if (!u) return true;
+  if ((from.username ?? null) !== u.username) return true;
+  if ((from.first_name ?? null) !== u.first_name) return true;
+  if ((from.last_name ?? null) !== u.last_name) return true;
+  if (from.photo_url && from.photo_url !== u.photo_url) return true;
+  const seen = Date.parse(u.last_seen_at);
+  return !Number.isFinite(seen) || now - seen > SEEN_REFRESH_MS;
+}
 
 export type Bookmaker = {
   id: string;
@@ -26,7 +38,9 @@ export const BOOKMAKER_COLS = () => sql`id, name, logo_url, deposit_enabled, wit
 export async function walletAuth(initData: string) {
   const v = await verifyInitData(initData);
   const ref = v.startParam && /^\d+$/.test(v.startParam) ? Number(v.startParam) : null;
-  const { user } = await upsertTgUser(v.user, ref);
+  // Read first: most wallet actions come from a known user, so skip the write (fewer locks at peak).
+  const known = await maybeOne(sql<TgUser[]>`select ${USER_COLS()} from public.tg_users where id = ${v.user.id}`);
+  const user = needsUserWrite(known, v.user) ? (await upsertTgUser(v.user, ref)).user : known!;
   if (user.is_blocked) throw new Error("BLOCKED");
   return { user, demo: v.demo };
 }

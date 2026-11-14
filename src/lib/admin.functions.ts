@@ -451,6 +451,8 @@ export const adminConnectBot = createServerFn({ method: "POST" })
       url: `${base}/api/public/telegram/webhook`,
       secret_token: await webhookSecret(),
       allowed_updates: ["message", "callback_query"],
+      // Telegram delivers up to this many updates at once (default 40) — busy hours need more.
+      max_connections: 100,
       drop_pending_updates: false,
     });
     await tg("setChatMenuButton", {

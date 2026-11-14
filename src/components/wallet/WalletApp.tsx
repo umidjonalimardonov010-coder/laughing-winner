@@ -6,6 +6,7 @@ import { Ctx, type Bookmaker, type WalletCtx } from "./context";
 import { loadTelegram, type TgWebApp } from "./telegram";
 import { Help, History, Home, NavBar, NewTab, Profile, Services, Videos } from "./screens";
 import { BrandMark, LiveBackdrop, Wordmark } from "./ui";
+import { PhoneGate } from "./verify";
 import { BookmakerSheet, CardWithdrawSheet, LangSheet, ReferralsSheet, TopupSheet, VideoModal } from "./sheets";
 
 type Tab = "home" | "services" | "history" | "new";
@@ -129,6 +130,10 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
         else if (tg?.openLink) tg.openLink(url);
         else window.open(url, "_blank", "noopener");
       },
+      requestContact:
+        tg?.requestContact && tg.isVersionAtLeast?.("6.9")
+          ? () => new Promise<boolean>((resolve) => tg.requestContact!((shared) => resolve(!!shared)))
+          : null,
     };
   }, [q.data, lang, t, initData, tg]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -141,6 +146,21 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
         <div className="font-display text-2xl font-bold">{translate(lang, "openInTelegram")}</div>
         <p className="text-muted-foreground">{translate(lang, "openInTelegramSub")}</p>
       </div>
+    );
+  }
+
+  // No phone number yet → the wallet stays closed until the user shares their own number.
+  if (!ctx.boot.demo && !ctx.boot.user.phone) {
+    return (
+      <Ctx.Provider value={ctx}>
+        <div className="fixed inset-0 flex flex-col overflow-hidden">
+          <LiveBackdrop />
+          <div className="tg-safe-top shrink-0" />
+          <main className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <PhoneGate />
+          </main>
+        </div>
+      </Ctx.Provider>
     );
   }
 

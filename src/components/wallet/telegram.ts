@@ -19,6 +19,8 @@ export type TgWebApp = {
   isFullscreen?: boolean;
   isVersionAtLeast?: (v: string) => boolean;
   requestFullscreen?: () => void;
+  /** Bot API 6.9+: asks the user to share their own phone number with the bot. */
+  requestContact?: (cb?: (shared: boolean) => void) => void;
 };
 
 declare global {

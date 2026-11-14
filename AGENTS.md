@@ -40,3 +40,5 @@ use the editor.
 - One-time data changes go in `src/lib/server/migrations.server.ts` (recorded in `app_migrations`, run lazily from bootstrap/bot/admin) — because Railway has no migration runner.
 - Data read on every wallet open (settings, active bookmakers, videos) goes through `cached()` in `src/lib/server/memo.server.ts` with a few-second TTL and `clearCache()` on admin saves; media links use rounded expiry so URLs stay stable — so many users opening at once don't flood the database or re-download images.
 - Wallet UI avoids `backdrop-filter`/`filter: blur` over the animated backdrop and animates only transform/opacity — because blur over moving layers freezes cheap phones.
+- Money rules live in `src/lib/verification.ts`: every deposit/withdraw server function calls `assertPhone`, withdrawals also verify the selfie path (`isOwnSelfiePath` + file exists) and post it with `notifyWithdrawSelfie` — so the bot, wallet and server enforce the same rule.
+- Columns added later by `migrations.server.ts` are read with `to_jsonb(t) ->> 'col'` in shared queries (e.g. `selfie_path`), not added to `TX_COLS` — so queries keep working before the migration has run.

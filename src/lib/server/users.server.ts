@@ -62,6 +62,11 @@ export async function upsertTgUser(from: TgFrom, refId?: number | null) {
   return { user, isNew: user.inserted === true };
 }
 
+/** Saves the user's own verified phone number (from a Telegram contact). */
+export async function savePhone(userId: number, phone: string) {
+  await sql`update public.tg_users set phone = ${phone} where id = ${userId}`;
+}
+
 export async function countReferrals(userId: number) {
   return countOf(sql`select count(*)::float8 as n from public.tg_users where referrer_id = ${userId}`);
 }

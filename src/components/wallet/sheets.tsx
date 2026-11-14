@@ -18,6 +18,7 @@ import {
 } from "@/lib/wallet.functions";
 import { errorText, useWallet, type Bookmaker } from "./context";
 import { BkLogo, BottomSheet, inputCls, PrimaryButton, Step } from "./ui";
+import { SelfieStep } from "./verify";
 
 const digits = (s: string) => s.replace(/\D/g, "");
 const amountFmt = (s: string) => formatSom(Number(digits(s) || 0)).replace(/^0$/, "");
@@ -65,11 +66,13 @@ export function BookmakerSheet({
   const [checking, setChecking] = useState(false);
   const [amount, setAmount] = useState("");
   const [code, setCode] = useState("");
+  const [selfie, setSelfie] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const done = useAfterSuccess();
 
   useEffect(() => {
     if (!bk) return;
+    setSelfie(null);
     setMode(initialMode === "deposit" && !bk.deposit_enabled ? "withdraw" : initialMode === "withdraw" && !bk.withdraw_enabled ? "deposit" : initialMode);
     setAccount("");
     setChecked(false);
@@ -120,7 +123,11 @@ export function BookmakerSheet({
           toast.error(t("invalidCode"));
           return;
         }
-        const r = await walletBkWithdraw({ data: { initData, bookmakerId: bk.id, accountId: account, code } });
+        if (!selfie) {
+          toast.error(t("selfieRequired"));
+          return;
+        }
+        const r = await walletBkWithdraw({ data: { initData, bookmakerId: bk.id, accountId: account, code, selfiePath: selfie } });
         await done(r.number, r.auto);
       }
       onClose();
@@ -228,7 +235,8 @@ export function BookmakerSheet({
             <p className="mt-3 text-center text-sm italic text-muted-foreground">{t("codeHint")}</p>
           </Step>
         )}
-        <PrimaryButton onClick={submit} disabled={busy || !checked || (mode === "deposit" ? !amt : code.length !== 4)}>
+        {mode === "withdraw" && <SelfieStep value={selfie} onChange={setSelfie} disabled={!checked || code.length !== 4} />}
+        <PrimaryButton onClick={submit} disabled={busy || !checked || (mode === "deposit" ? !amt : code.length !== 4 || !selfie)}>
           {busy ? <Loader2 className="mx-auto size-6 animate-spin" /> : mode === "deposit" ? (amt ? `${t("deposit")} ${formatSom(amt)} ${t("som")}` : t("depositBtn")) : t("toBalance")}
         </PrimaryButton>
       </div>
@@ -345,6 +353,7 @@ export function CardWithdrawSheet({ open, onClose }: { open: boolean; onClose: (
   const s = boot.settings;
   const [card, setCard] = useState("");
   const [amount, setAmount] = useState("");
+  const [selfie, setSelfie] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const done = useAfterSuccess();
   const amt = Number(amount || 0);
@@ -354,6 +363,7 @@ export function CardWithdrawSheet({ open, onClose }: { open: boolean; onClose: (
     if (open) {
       setCard("");
       setAmount("");
+      setSelfie(null);
     }
   }, [open]);
 
@@ -366,7 +376,8 @@ export function CardWithdrawSheet({ open, onClose }: { open: boolean; onClose: (
     try {
       if (amt < s.min_card_withdraw || amt > s.max_card_withdraw) throw new Error("invalid_amount");
       if (amt > boot.user.balance) throw new Error("insufficient");
-      const r = await walletCardWithdraw({ data: { initData, cardNumber: card, amount: amt } });
+      if (!selfie) throw new Error("selfie_required");
+      const r = await walletCardWithdraw({ data: { initData, cardNumber: card, amount: amt, selfiePath: selfie } });
       await done(r.number);
       onClose();
     } catch (e) {
@@ -403,7 +414,8 @@ export function CardWithdrawSheet({ open, onClose }: { open: boolean; onClose: (
             {range.min} — {range.max} {t("som")}
           </div>
         </Step>
-        <PrimaryButton onClick={submit} disabled={busy || card.length !== 16 || !amt}>
+        <SelfieStep value={selfie} onChange={setSelfie} disabled={card.length !== 16 || !amt} />
+        <PrimaryButton onClick={submit} disabled={busy || card.length !== 16 || !amt || !selfie}>
           {busy ? <Loader2 className="mx-auto size-6 animate-spin" /> : t("sendRequest")}
         </PrimaryButton>
       </div>

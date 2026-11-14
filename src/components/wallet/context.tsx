@@ -14,6 +14,8 @@ export type WalletCtx = {
   refresh: () => Promise<unknown>;
   haptic: (kind?: "light" | "success" | "error") => void;
   openLink: (url: string) => void;
+  /** Opens Telegram's "share my phone number" prompt; null when this Telegram version has none. */
+  requestContact: (() => Promise<boolean>) | null;
 };
 
 export const Ctx = createContext<WalletCtx | null>(null);
@@ -29,5 +31,7 @@ export function errorText(t: WalletCtx["t"], e: unknown, vars?: Record<string, s
   if (m.includes("insufficient")) return t("insufficient");
   if (m.includes("bk_rejected")) return t("bkRejected");
   if (m.includes("invalid_amount")) return t("invalidAmount", vars);
+  if (m.includes("phone_required")) return t("phoneRequired");
+  if (m.includes("selfie_required")) return t("selfieRequired");
   return t("errorGeneric");
 }

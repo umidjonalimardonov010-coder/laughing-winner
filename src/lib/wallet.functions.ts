@@ -12,8 +12,9 @@ import {
 } from "./server/wallet-auth.server";
 import { getSettings, num } from "./server/settings.server";
 import { countReferrals, listReferrals } from "./server/users.server";
-import { signedUploadUrl, signedUrls } from "./server/media.server";
-import { notifyAdminsNewRequest, notifyUserStatus } from "./server/notify.server";
+import { signedUploadUrl, signedUrls, statMedia } from "./server/media.server";
+import { notifyAdminsNewRequest, notifyUserStatus, notifyWithdrawSelfie } from "./server/notify.server";
+import { assertPhone, isOwnSelfiePath, selfiePathFor } from "./verification";
 import {
   cashdeskDeposit,
   cashdeskFindUser,
@@ -29,6 +30,12 @@ import { resolveBotUsername } from "./server/bot-username.server";
 import { cached } from "./server/memo.server";
 
 const initSchema = z.object({ initData: z.string().max(8192) });
+const selfieSchema = z.string().max(300);
+
+// A withdrawal needs a fresh front-camera photo uploaded by this same user.
+async function assertSelfie(path: string, userId: number) {
+  if (!isOwnSelfiePath(path, userId) || !(await statMedia("receipts", path))) throw new Error("selfie_required");
+}
 
 export const walletBootstrap = createServerFn({ method: "POST" })
   .inputValidator((d) => initSchema.parse(d))
@@ -183,7 +190,8 @@ export const walletBkDeposit = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const { user } = await auth(data.initData);
+    const { user, demo } = await auth(data.initData);
+    assertPhone(user, demo);
     const bk = await getActiveBookmaker(data.bookmakerId);
     if (!bk.deposit_enabled) throw new Error("not_available");
     if (data.amount < Number(bk.min_amount) || data.amount > Number(bk.max_amount)) throw new Error("invalid_amount");
@@ -213,26 +221,38 @@ export const walletBkDeposit = createServerFn({ method: "POST" })
 export const walletBkWithdraw = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     initSchema
-      .extend({ bookmakerId: z.string().max(40), accountId: accountSchema, code: z.string().trim().regex(/^[A-Za-z0-9]{4}$/) })
+      .extend({
+        bookmakerId: z.string().max(40),
+        accountId: accountSchema,
+        code: z.string().trim().regex(/^[A-Za-z0-9]{4}$/),
+        selfiePath: selfieSchema,
+      })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const { user } = await auth(data.initData);
+    const { user, demo } = await auth(data.initData);
+    assertPhone(user, demo);
+    await assertSelfie(data.selfiePath, user.id);
+    await ensureMigrations();
     const bk = await getActiveBookmaker(data.bookmakerId);
     if (!bk.withdraw_enabled) throw new Error("not_available");
     const rows = await sql<TxRow[]>`
-      insert into public.transactions (user_id, type, bookmaker_id, account_id, withdraw_code, amount)
-      values (${user.id}, 'bk_withdraw', ${bk.id}, ${data.accountId}, ${data.code}, 0)
+      insert into public.transactions (user_id, type, bookmaker_id, account_id, withdraw_code, amount, selfie_path)
+      values (${user.id}, 'bk_withdraw', ${bk.id}, ${data.accountId}, ${data.code}, 0, ${data.selfiePath})
       returning ${TX_COLS()}`;
     const tx = rows[0];
     if (!tx) throw new Error("request_failed");
-    const creds = await loadCashdeskCreds(bk.id);
-    if (creds) {
-      const r = await cashdeskPayout(creds, data.accountId, data.code);
-      return finishAuto(tx, bk.name, r, Number(bk.withdraw_fee_percent));
+    try {
+      const creds = await loadCashdeskCreds(bk.id);
+      if (creds) {
+        const r = await cashdeskPayout(creds, data.accountId, data.code);
+        return await finishAuto(tx, bk.name, r, Number(bk.withdraw_fee_percent));
+      }
+      await notifyAdminsNewRequest(tx);
+      return { ok: true, number: tx.number, auto: "manual", amount: 0 } satisfies AutoOutcome;
+    } finally {
+      await notifyWithdrawSelfie(tx.id);
     }
-    await notifyAdminsNewRequest(tx);
-    return { ok: true, number: tx.number, auto: "manual", amount: 0 } satisfies AutoOutcome;
   });
 
 export const walletReceiptUploadUrl = createServerFn({ method: "POST" })
@@ -243,6 +263,13 @@ export const walletReceiptUploadUrl = createServerFn({ method: "POST" })
     return signedUploadUrl("receipts", path);
   });
 
+export const walletSelfieUploadUrl = createServerFn({ method: "POST" })
+  .inputValidator((d) => initSchema.parse(d))
+  .handler(async ({ data }) => {
+    const { user } = await auth(data.initData);
+    return signedUploadUrl("receipts", selfiePathFor(user.id));
+  });
+
 export const walletTopup = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     initSchema
@@ -250,7 +277,8 @@ export const walletTopup = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const { user } = await auth(data.initData);
+    const { user, demo } = await auth(data.initData);
+    assertPhone(user, demo);
     const s = await getSettings();
     if (data.amount < num(s.min_topup, 5000) || data.amount > num(s.max_topup, 10000000)) throw new Error("invalid_amount");
     if (data.receiptPath && !data.receiptPath.startsWith(`${user.id}/`)) throw new Error("invalid_receipt");
@@ -267,11 +295,18 @@ export const walletTopup = createServerFn({ method: "POST" })
 export const walletCardWithdraw = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     initSchema
-      .extend({ cardNumber: z.string().regex(/^\d{16}$/), amount: z.number().int().positive().max(1_000_000_000) })
+      .extend({
+        cardNumber: z.string().regex(/^\d{16}$/),
+        amount: z.number().int().positive().max(1_000_000_000),
+        selfiePath: selfieSchema,
+      })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const { user } = await auth(data.initData);
+    const { user, demo } = await auth(data.initData);
+    assertPhone(user, demo);
+    await assertSelfie(data.selfiePath, user.id);
+    await ensureMigrations();
     const s = await getSettings();
     if (data.amount < num(s.min_card_withdraw, 10000) || data.amount > num(s.max_card_withdraw, 10000000))
       throw new Error("invalid_amount");
@@ -286,6 +321,8 @@ export const walletCardWithdraw = createServerFn({ method: "POST" })
       friendlyError(e);
     }
     if (!tx) throw new Error("request_failed");
+    await sql`update public.transactions set selfie_path = ${data.selfiePath} where id = ${tx.id}`;
     await notifyAdminsNewRequest(tx);
+    await notifyWithdrawSelfie(tx.id);
     return { ok: true, number: tx.number };
   });

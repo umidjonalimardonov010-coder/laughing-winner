@@ -353,3 +353,132 @@ html, body { overscroll-behavior: none; }
   .live-aurora, .live-beam, .live-pitch-grid, .live-spark, .animate-glow, .animate-hero, .animate-rise { animation: none; }
   .live-spark { display: none; }
 }
+
+/* ---------- Verification: phone gate + withdrawal selfie ---------- */
+@keyframes float-y {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-14px) rotate(2deg); }
+}
+@keyframes ring-out {
+  0% { transform: scale(0.7); opacity: 0.7; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+@keyframes scan-sweep {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(96%); }
+}
+@keyframes oval-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+@keyframes pop-in {
+  0% { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@keyframes flash-out {
+  from { opacity: 0.9; }
+  to { opacity: 0; }
+}
+.animate-float { animation: float-y 4.5s ease-in-out infinite; will-change: transform; }
+.animate-pop { animation: pop-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.3) both; }
+.verify-ring {
+  position: absolute;
+  inset: 12%;
+  border-radius: 9999px;
+  border: 2px solid var(--primary);
+  box-shadow: 0 0 24px var(--primary);
+  animation: ring-out 2.8s ease-out infinite;
+}
+.verify-ring-2 { animation-delay: 0.93s; }
+.verify-ring-3 { animation-delay: 1.86s; border-color: var(--gold); box-shadow: 0 0 24px var(--gold); }
+.verify-halo {
+  position: absolute;
+  inset: 8%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, oklch(0.74 0.22 142 / 0.45), transparent 68%);
+}
+.selfie-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1.75rem;
+  background: var(--background);
+  border: 1px solid oklch(0.74 0.22 142 / 0.35);
+  box-shadow: var(--shadow-glow);
+}
+.selfie-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 36% 41% at 50% 45%, transparent 97%, oklch(0.1 0.02 150 / 0.78) 100%);
+}
+.selfie-oval {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 4%;
+  bottom: 14%;
+  border-radius: 50%;
+  border: 3px solid var(--primary);
+  box-shadow: 0 0 22px var(--primary), inset 0 0 22px oklch(0.74 0.22 142 / 0.4);
+  pointer-events: none;
+  animation: oval-breathe 2.2s ease-in-out infinite;
+}
+.selfie-scan-track {
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  top: 6%;
+  height: 78%;
+  pointer-events: none;
+  animation: scan-sweep 3s ease-in-out infinite;
+}
+.selfie-scan-track::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 3px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  box-shadow: 0 0 14px 2px var(--primary);
+}
+.selfie-flash {
+  position: absolute;
+  inset: 0;
+  background: var(--foreground);
+  pointer-events: none;
+  animation: flash-out 0.4s ease-out both;
+}
+.btn-shutter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.75rem;
+  height: 4.75rem;
+  border-radius: 9999px;
+  border: 4px solid var(--foreground);
+  background: transparent;
+  transition: transform 0.15s ease;
+}
+.btn-shutter::before {
+  content: "";
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 9999px;
+  background: linear-gradient(180deg, oklch(0.82 0.21 140), var(--primary) 50%, var(--primary-deep));
+  box-shadow: var(--shadow-glow);
+}
+.btn-shutter::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px solid var(--primary);
+  animation: ring-out 1.8s ease-out infinite;
+}
+.btn-shutter:active { transform: scale(0.92); }
+@media (prefers-reduced-motion: reduce) {
+  .animate-float, .verify-ring, .selfie-scan-track, .selfie-oval, .btn-shutter::after { animation: none; }
+}

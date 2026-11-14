@@ -57,6 +57,12 @@ const GROUPS: { title: string; fields: { key: string; label: string; hint?: stri
         hint: "Yangi so'rov kelganda shu odamlarga xabar boradi. Bir nechta bo'lsa vergul bilan yozing. ID ni @userinfobot dan bilish mumkin.",
         placeholder: "123456789, 987654321",
       },
+      {
+        key: "selfie_channel_id",
+        label: "Yuz suratlari kanali (yopiq kanal)",
+        hint: "Pul chiqarishdagi selfi, ism, telefon, so'rov raqami, karta/ID va summa shu kanalga boradi. Botni kanalga admin qiling. Yopiq kanal ID si -100 bilan boshlanadi (masalan -1001234567890). Bo'sh bo'lsa — adminlarga yuboriladi.",
+        placeholder: "-1001234567890",
+      },
     ],
   },
 ];

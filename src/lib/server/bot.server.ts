@@ -6,7 +6,8 @@ import { approveRequest, isTelegramAdmin, rejectRequest } from "./requests.serve
 import { cleanCardNumber } from "./admins";
 import { loadCashdeskCreds } from "./cashdesk-config.server";
 import { escapeHtml, tg } from "./telegram.server";
-import { listReferrals, upsertTgUser, type TgFrom } from "./users.server";
+import { listReferrals, savePhone, upsertTgUser, type TgFrom } from "./users.server";
+import { isOwnContact, normalizePhone } from "@/lib/verification";
 import { signedUrl } from "./media.server";
 import { resolveBotUsername } from "./bot-username.server";
 import { referralLink, shareLink } from "@/lib/referral";
@@ -59,6 +60,11 @@ const TXT = {
     ratesDeposit: "📊 To'ldirish kurslari:",
     ratesWithdraw: "📊 Yechish kurslari:",
     blocked: "⛔ Hisobingiz bloklangan. Qo'llab-quvvatlashga murojaat qiling.",
+    askPhone:
+      "🔐 <b>Hisobingizni tasdiqlang</b>\n\nXavfsizlik uchun telefon raqamingiz kerak. Pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.\n\n<i>Raqam yuborilmaguncha menyu ochilmaydi. Faqat o'zingizning raqamingiz qabul qilinadi.</i>",
+    phoneBtn: "📱 Raqamni yuborish",
+    notOwnContact: "⚠️ Bu boshqa odamning kontakti. Iltimos, pastdagi tugma orqali <b>o'zingizning</b> raqamingizni yuboring.",
+    phoneSaved: (p: string) => `✅ Raqamingiz tasdiqlandi: <code>${p}</code>`,
     st: { pending: "⏳ kutilmoqda", approved: "✅ bajarildi", rejected: "❌ rad etildi" } as Record<string, string>,
     ty: {
       wallet_topup: "Hamyonni to'ldirish",
@@ -94,6 +100,11 @@ const TXT = {
     ratesDeposit: "📊 Курсы пополнения:",
     ratesWithdraw: "📊 Курсы вывода:",
     blocked: "⛔ Ваш аккаунт заблокирован. Обратитесь в поддержку.",
+    askPhone:
+      "🔐 <b>Подтвердите аккаунт</b>\n\nДля безопасности нужен ваш номер телефона. Нажмите кнопку <b>«📱 Отправить номер»</b> ниже.\n\n<i>Меню откроется только после отправки номера. Принимается только ваш собственный номер.</i>",
+    phoneBtn: "📱 Отправить номер",
+    notOwnContact: "⚠️ Это контакт другого человека. Отправьте, пожалуйста, <b>свой</b> номер кнопкой ниже.",
+    phoneSaved: (p: string) => `✅ Ваш номер подтверждён: <code>${p}</code>`,
     st: { pending: "⏳ в ожидании", approved: "✅ выполнено", rejected: "❌ отклонено" } as Record<string, string>,
     ty: {
       wallet_topup: "Пополнение кошелька",
@@ -279,6 +290,26 @@ async function sendLanguagePicker(chatId: number) {
   });
 }
 
+// Phone gate: a one-button keyboard that shares the user's own contact. The menu stays closed until then.
+async function sendPhoneRequest(chatId: number, l: L, base: string) {
+  const markup = {
+    keyboard: [[{ text: TXT[l].phoneBtn, request_contact: true }]],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+  try {
+    await tg("sendPhoto", {
+      chat_id: chatId,
+      photo: `${base}/images/phone-verify.jpg`,
+      caption: TXT[l].askPhone,
+      parse_mode: "HTML",
+      reply_markup: markup,
+    });
+  } catch {
+    await tg("sendMessage", { chat_id: chatId, text: TXT[l].askPhone, parse_mode: "HTML", reply_markup: markup });
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Update = any;
 
@@ -301,10 +332,12 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
       await sql`update public.tg_users set lang = ${l}, lang_chosen = true where id = ${user.id}`;
       if (cq.message?.message_id)
         await tg("deleteMessage", { chat_id: chatId, message_id: cq.message.message_id }).catch(() => undefined);
+      if (!user.phone) return sendPhoneRequest(chatId, l, base);
       await sendWelcome(chatId, l, s);
       return;
     }
     const l: L = user.lang === "ru" ? "ru" : "uz";
+    if (!user.phone) return sendPhoneRequest(chatId, l, base);
     if (data === "menu") return sendMainMenu(chatId, l, s);
     if (data === "refs") {
       const refs = await listReferrals(user.id);
@@ -336,6 +369,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
       return;
     }
     if (!user.lang_chosen) return sendLanguagePicker(chatId);
+    if (!user.phone) return sendPhoneRequest(chatId, user.lang === "ru" ? "ru" : "uz", base);
     return sendWelcome(chatId, user.lang === "ru" ? "ru" : "uz", s);
   }
 
@@ -346,8 +380,20 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     await tg("sendMessage", { chat_id: chatId, text: t.blocked });
     return;
   }
+  // Shared contact (from the bot button or the wallet): only the sender's own number is accepted.
+  if (msg.contact) {
+    const phone = normalizePhone(msg.contact.phone_number);
+    if (!isOwnContact(msg.contact, from.id) || !phone) {
+      await tg("sendMessage", { chat_id: chatId, text: t.notOwnContact, parse_mode: "HTML" });
+      return sendPhoneRequest(chatId, l, base);
+    }
+    await savePhone(user.id, phone);
+    await tg("sendMessage", { chat_id: chatId, text: t.phoneSaved(escapeHtml(phone)), parse_mode: "HTML" });
+    if (!user.lang_chosen) return sendLanguagePicker(chatId);
+    return sendWelcome(chatId, l, s);
+  }
+
   if (text === "/lang") return sendLanguagePicker(chatId);
-  if (text === "/menu") return sendMainMenu(chatId, l, s);
 
   const isAdminCmd = text === ADMIN_BUTTON || /^\/admin(@\w+)?$/i.test(text);
   const isCardCmd = /^\/karta(@\w+)?(\s|$)/i.test(text);
@@ -355,6 +401,10 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     if (isCardCmd) return setCardFromChat(chatId, text);
     return sendAdminPanel(chatId, s, base);
   }
+
+  // No phone yet → nothing else opens.
+  if (!user.phone) return sendPhoneRequest(chatId, l, base);
+  if (text === "/menu") return sendMainMenu(chatId, l, s);
 
   const action = matchMenu(text);
   if (!action) return sendMainMenu(chatId, l, s);

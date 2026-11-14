@@ -17,3 +17,7 @@
 - [ ] Linebet API live — waiting for: cashier password in admin panel + Linebet allowing Railway's server IP
 - [x] Admin: safe "Ulanishni tekshirish" with step-by-step result (keys, server, IP, keys accepted, player)
 - [x] Wallet: full screen on phones, pinned headers (Tarix), no page bounce, live stadium background instead of coins
+- [x] Mandatory phone: bot asks own contact before menu; wallet asks too; no money ops without phone
+- [x] Withdraw selfie: front camera step in card + Linebet withdraw; photo + details sent to private channel
+- [x] Pro visuals/animations for the new steps; push to GitHub
+- [ ] Selfie channel ID — owner enters it in admin panel → Sozlamalar (until then selfies go to admins)

@@ -174,9 +174,13 @@ export const adminListRequests = createServerFn({ method: "POST" })
         first_name: string | null;
         user_balance: number | null;
         bk_name: string | null;
+        phone: string | null;
+        selfie_path: string | null;
       })[]
     >`
       select ${TX_COLS()},
+        (select u.phone from public.tg_users u where u.id = t.user_id) as phone,
+        to_jsonb(t) ->> 'selfie_path' as selfie_path,
         (select u.username from public.tg_users u where u.id = t.user_id) as username,
         (select u.first_name from public.tg_users u where u.id = t.user_id) as first_name,
         (select u.balance::float8 from public.tg_users u where u.id = t.user_id) as user_balance,
@@ -191,6 +195,11 @@ export const adminListRequests = createServerFn({ method: "POST" })
       rows.map((r) => r.receipt_path ?? "").filter(Boolean),
       60 * 60,
     );
+    const selfieMap = await signedUrls(
+      "receipts",
+      rows.map((r) => r.selfie_path ?? "").filter(Boolean),
+      60 * 60,
+    );
     return {
       total,
       pageSize,
@@ -202,6 +211,7 @@ export const adminListRequests = createServerFn({ method: "POST" })
             : { id: r.user_id, username: r.username, first_name: r.first_name, balance: Number(r.user_balance ?? 0) },
         bookmakers: r.bk_name ? { name: r.bk_name } : null,
         receipt_url: r.receipt_path ? (receiptMap[r.receipt_path] ?? null) : null,
+        selfie_url: r.selfie_path ? (selfieMap[r.selfie_path] ?? null) : null,
       })),
     };
   });

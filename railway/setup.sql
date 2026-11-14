@@ -206,3 +206,6 @@ BEGIN
   VALUES (p_user_id, 'adjustment', 'approved', p_delta, p_note, now());
   RETURN v_new;
 END $$;
+
+-- Pul chiqarishdagi yuz surati (selfi)
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS selfie_path text;

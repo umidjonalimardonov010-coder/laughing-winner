@@ -173,6 +173,7 @@ function RequestCard({ r }: { r: Row }) {
         <span className="tabular">{formatSom(user?.balance ?? 0)}</span>
       </div>
       <div className="space-y-2 text-sm">
+        {r.phone && <CopyVal label="Telefon" value={r.phone} />}
         {r.account_id && <CopyVal label="BK hisob ID" value={r.account_id} />}
         {r.withdraw_code && <CopyVal label="Chiqarish kodi" value={r.withdraw_code} />}
         {r.card_number && <CopyVal label="Karta" value={groupCard(r.card_number)} />}
@@ -193,6 +194,15 @@ function RequestCard({ r }: { r: Row }) {
           <a href={r.receipt_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-primary underline-offset-4 hover:underline">
             <ExternalLink className="size-4" /> To'lov chekini ko'rish
           </a>
+        )}
+        {r.selfie_url && (
+          <a href={r.selfie_url} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-lg bg-secondary/60 p-2">
+            <img src={r.selfie_url} alt="Yuz surati" className="h-20 w-16 rounded-md object-cover" loading="lazy" />
+            <span className="text-primary">🤳 Yuz surati</span>
+          </a>
+        )}
+        {(r.type === "card_withdraw" || r.type === "bk_withdraw") && !r.selfie_url && (
+          <div className="text-muted-foreground">Yuz surati yo'q (eski so'rov)</div>
         )}
         {r.type === "wallet_topup" && !r.receipt_url && <div className="text-warning">Chek yuklanmagan</div>}
         {r.admin_note && <div className="text-muted-foreground">💬 {r.admin_note}</div>}

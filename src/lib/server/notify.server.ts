@@ -151,3 +151,59 @@ async function sendWithReceipt(chatId: string, text: string, receiptUrl: string 
   }
   await tg("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", ...markup }).catch(() => undefined);
 }
+
+// Withdrawal selfie → the private channel (settings: selfie_channel_id), or the admins when it isn't set.
+// Re-reads the request so the final amount (known after an automatic payout) goes in the caption.
+export async function notifyWithdrawSelfie(txId: string) {
+  if (telegramMode() === "none") return;
+  try {
+    const s = await getSettings();
+    const channel = s.selfie_channel_id.trim();
+    const targets = channel ? [channel] : s.admin_chat_id.split(/[,\s]+/).filter(Boolean);
+    if (!targets.length) return;
+    const r = await maybeOne(
+      sql<
+        {
+          number: number;
+          type: string;
+          status: string;
+          amount: number;
+          account_id: string | null;
+          card_number: string | null;
+          bookmaker_id: string | null;
+          selfie_path: string | null;
+          user_id: number;
+          first_name: string | null;
+          last_name: string | null;
+          username: string | null;
+          phone: string | null;
+        }[]
+      >`
+        select t.number::float8 as number, t.type, t.status, t.amount::float8 as amount, t.account_id, t.card_number,
+          t.bookmaker_id, t.selfie_path, u.id::float8 as user_id, u.first_name, u.last_name, u.username, u.phone
+        from public.transactions t join public.tg_users u on u.id = t.user_id
+        where t.id = ${txId}`,
+    );
+    if (!r?.selfie_path) return;
+    const name = [r.first_name, r.last_name].filter(Boolean).join(" ");
+    const status: Record<string, string> = { pending: "⏳ Kutilmoqda", approved: "✅ Bajarildi", rejected: "❌ Rad etildi" };
+    const lines = [
+      `🤳 <b>Yechish so'rovi #${r.number}</b>`,
+      TYPE_UZ[r.type] ?? r.type,
+      "",
+      `👤 Ism: <b>${escapeHtml(name || "—")}</b>${r.username ? ` @${escapeHtml(r.username)}` : ""}`,
+      `🆔 Telegram ID: <code>${r.user_id}</code>`,
+      `📱 Telefon: <code>${escapeHtml(r.phone ?? "—")}</code>`,
+    ];
+    if (r.bookmaker_id) lines.push(`🏢 ${escapeHtml(await bkName(r.bookmaker_id))}`);
+    if (r.account_id) lines.push(`🎯 Hisob ID: <code>${escapeHtml(r.account_id)}</code>`);
+    if (r.card_number) lines.push(`💳 Karta: <code>${escapeHtml(r.card_number)}</code>`);
+    lines.push(r.amount ? `💰 Summa: <b>${formatSom(r.amount)} so'm</b>` : "💰 Summa: kod bo'yicha (hali aniqlanmagan)");
+    lines.push(`📌 Holat: ${status[r.status] ?? r.status}`);
+    const base = publicBase(s);
+    const photo = base ? await signedUrl("receipts", r.selfie_path, 60 * 60 * 24, base) : null;
+    for (const chatId of targets) await sendWithReceipt(chatId, lines.join("\n"), photo, r.selfie_path, {});
+  } catch (e) {
+    console.error("notifyWithdrawSelfie", e);
+  }
+}

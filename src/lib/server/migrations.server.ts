@@ -23,6 +23,11 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
         on conflict (key) do update set value = excluded.value, updated_at = now()`;
     },
   },
+  {
+    // Withdrawal selfie (front camera photo) kept with the request.
+    id: "2026-11-14-transactions-selfie",
+    run: () => sql`alter table public.transactions add column if not exists selfie_path text`,
+  },
 ];
 
 let done: Promise<void> | undefined;

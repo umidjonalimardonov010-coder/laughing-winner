@@ -21,4 +21,7 @@
 - [x] Withdraw selfie: front camera step in card + Linebet withdraw; photo + details sent to private channel
 - [x] Pro visuals/animations for the new steps; push to GitHub
 - [x] Selfie channel links itself: admin adds bot as channel admin, or forwards a channel post to the bot (invite links can't give the ID)
-- [ ] Selfie channel live — owner adds the bot as admin to the private channel (until then selfies go to admins)
+- [x] Requests → bot only (pro layout with phone + time); selfies → channel only; /kanal + one-tap 'add bot to channel'
+- [x] Bot/wallet speed: alerts sent after the reply, webhook answers Telegram within 4 s, buttons stop spinning at once
+- [x] Selfie auto-shot when the full face is centred in the oval (face detection), manual button still works
+- [ ] Selfie channel live — owner taps /kanal → 'Botni kanalga qo'shish' (until then selfies aren't sent anywhere, still visible in admin panel)

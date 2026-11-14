@@ -213,6 +213,12 @@ async function sendAdminPanel(chatId: number, s: Settings, base: string) {
     );
   if (!(await loadCashdeskCreds("linebet")))
     lines.push("", "⚠️ Linebet API kiritilmagan — so'rovlarni qo'lda tasdiqlaysiz. Kiritish: panel → Sozlamalar → Linebet API.");
+  lines.push(
+    "",
+    s.selfie_channel_id.trim()
+      ? "🤳 Selfi kanali: ✅ ulangan"
+      : "⚠️ <b>Selfi kanali ulanmagan</b> — yuz suratlari yuborilmayapti. Ulash: /kanal",
+  );
   lines.push("", "Barcha boshqaruv (so'rovlar, foydalanuvchilar, balans, bukmekerlar, videolar, sozlamalar) panelda:");
   await tg("sendMessage", {
     chat_id: chatId,
@@ -225,8 +231,39 @@ async function sendAdminPanel(chatId: number, s: Settings, base: string) {
           { text: "📥 So'rovlar", web_app: { url: `${base}/admin/requests` } },
           { text: "⚙️ Sozlamalar", web_app: { url: `${base}/admin/settings` } },
         ],
+        [{ text: "🤳 Selfi kanali", callback_data: "adm:channel" }],
       ],
     },
+  });
+}
+
+// "/kanal": how the private selfie channel gets linked — one tap adds the bot to a channel as admin.
+async function sendChannelHelp(chatId: number, s: Settings) {
+  const bot = await resolveBotUsername(s);
+  const linked = s.selfie_channel_id.trim();
+  const text = [
+    "🤳 <b>Selfi kanali</b>",
+    "",
+    linked ? `✅ Ulangan: <code>${escapeHtml(linked)}</code>` : "⚠️ Hali ulanmagan — yuz suratlari hech qayerga yuborilmayapti.",
+    "",
+    "<b>Ulash:</b>",
+    "1️⃣ Pastdagi tugmani bosing va yopiq kanalingizni tanlang",
+    "2️⃣ Botga «Xabar yuborish» huquqini bering",
+    "3️⃣ Bot kanalga «✅ Kanal ulandi» deb yozadi — tayyor",
+    "",
+    "Bot allaqachon kanalda bo'lsa: kanaldagi istalgan postni shu yerga <b>forward</b> qiling.",
+  ].join("\n");
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    ...(bot
+      ? {
+          reply_markup: {
+            inline_keyboard: [[{ text: "➕ Botni kanalga qo'shish", url: `https://t.me/${bot}?startchannel&admin=post_messages` }]],
+          },
+        }
+      : {}),
   });
 }
 
@@ -358,9 +395,16 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     const from: TgFrom = cq.from;
     const chatId: number = cq.message?.chat?.id ?? from.id;
     const data: string = cq.data ?? "";
+    if (data === "adm:channel") {
+      void tg("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => undefined);
+      if (await isTelegramAdmin(from.id, s)) await sendChannelHelp(chatId, s);
+      return;
+    }
     if (data.startsWith("adm:")) return handleAdminDecision(cq, s);
+    // Stop the button's spinner right away; the answer follows.
+    const answered = tg("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => undefined);
     const { user } = await upsertTgUser(from);
-    await tg("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => undefined);
+    await answered;
     if (data.startsWith("lang:")) {
       const l: L = data === "lang:ru" ? "ru" : "uz";
       await sql`update public.tg_users set lang = ${l}, lang_chosen = true where id = ${user.id}`;
@@ -435,8 +479,10 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
 
   const isAdminCmd = text === ADMIN_BUTTON || /^\/admin(@\w+)?$/i.test(text);
   const isCardCmd = /^\/karta(@\w+)?(\s|$)/i.test(text);
-  if ((isAdminCmd || isCardCmd) && (await isTelegramAdmin(from.id, s))) {
+  const isChannelCmd = /^\/kanal(@\w+)?$/i.test(text);
+  if ((isAdminCmd || isCardCmd || isChannelCmd) && (await isTelegramAdmin(from.id, s))) {
     if (isCardCmd) return setCardFromChat(chatId, text);
+    if (isChannelCmd) return sendChannelHelp(chatId, s);
     return sendAdminPanel(chatId, s, base);
   }
 

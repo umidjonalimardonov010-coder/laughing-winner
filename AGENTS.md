@@ -42,3 +42,6 @@ use the editor.
 - Wallet UI avoids `backdrop-filter`/`filter: blur` over the animated backdrop and animates only transform/opacity — because blur over moving layers freezes cheap phones.
 - Money rules live in `src/lib/verification.ts`: every deposit/withdraw server function calls `assertPhone`, withdrawals also verify the selfie path (`isOwnSelfiePath` + file exists) and post it with `notifyWithdrawSelfie` — so the bot, wallet and server enforce the same rule.
 - Columns added later by `migrations.server.ts` are read with `to_jsonb(t) ->> 'col'` in shared queries (e.g. `selfie_path`), not added to `TX_COLS` — so queries keep working before the migration has run.
+
+- Withdrawal alerts are split: the request (with ✅/❌) goes to admins in the bot, the selfie only to `selfie_channel_id`; Telegram alerts from server functions run via `inBackground()` — so the wallet replies instantly and the two never mix.
+- Selfie auto-shot uses MediaPipe face detection loaded lazily in the browser (wasm from jsdelivr, model in public/models); the rule lives in `src/lib/face-check.ts` — so it stays testable and the manual shutter always works if loading fails.

@@ -16,13 +16,12 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
         } catch {
           return Response.json({ ok: true, ignored: true });
         }
-        try {
-          const { handleUpdate } = await import("@/lib/server/bot.server");
-          await handleUpdate(update, new URL(request.url).origin);
-        } catch (e) {
-          // Always 200 so Telegram doesn't retry the same update forever.
-          console.error("telegram update failed", e);
-        }
+        const { handleUpdate } = await import("@/lib/server/bot.server");
+        // Always 200 so Telegram doesn't retry the same update forever.
+        const work = handleUpdate(update, new URL(request.url).origin).catch((e) => console.error("telegram update failed", e));
+        // Answer Telegram within a few seconds even when a reply is slow (videos, photos), so the next
+        // messages aren't held in Telegram's queue; the slow part finishes on its own (Railway runs Node).
+        await Promise.race([work, new Promise((r) => setTimeout(r, 4000))]);
         return Response.json({ ok: true });
       },
     },

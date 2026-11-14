@@ -13,7 +13,7 @@ import {
 import { getSettings, num } from "./server/settings.server";
 import { countReferrals, listReferrals } from "./server/users.server";
 import { signedUploadUrl, signedUrls, statMedia } from "./server/media.server";
-import { notifyAdminsNewRequest, notifyUserStatus, notifyWithdrawSelfie } from "./server/notify.server";
+import { inBackground, notifyAdminsNewRequest, notifyUserStatus, notifyWithdrawSelfie } from "./server/notify.server";
 import { assertPhone, isOwnSelfiePath, selfiePathFor } from "./verification";
 import {
   cashdeskDeposit,
@@ -169,7 +169,7 @@ async function finishAuto(tx: TxRow, bkName: string, r: CashdeskResult, withdraw
         ${num(s.referral_percent, 0)}, ${`Avto: ${bkName}`}
       )`;
     const done = rows[0] ?? tx;
-    await notifyUserStatus(done);
+    inBackground("user status", () => notifyUserStatus(done));
     return { ok: true, number: tx.number, auto: "done", amount: Number(done.amount) };
   }
   if (r.kind === "rejected") {
@@ -179,7 +179,7 @@ async function finishAuto(tx: TxRow, bkName: string, r: CashdeskResult, withdraw
   const rows = await sql<TxRow[]>`
     update public.transactions set admin_note = ${`⚠️ Avto: ${bkName} javob bermadi — kassani tekshiring (${r.message})`.slice(0, 300)}
     where id = ${tx.id} returning ${TX_COLS()}`;
-  await notifyAdminsNewRequest(rows[0] ?? tx);
+  inBackground("alert", () => notifyAdminsNewRequest(rows[0] ?? tx));
   return { ok: true, number: tx.number, auto: "pending", amount: Number(tx.amount) };
 }
 
@@ -214,7 +214,7 @@ export const walletBkDeposit = createServerFn({ method: "POST" })
       const r = await cashdeskDeposit(creds, data.accountId, depositSumma(Number(tx.amount), Number(tx.bonus), Number(tx.fee)));
       return finishAuto(tx, bk.name, r, 0);
     }
-    await notifyAdminsNewRequest(tx);
+    inBackground("alert", () => notifyAdminsNewRequest(tx));
     return { ok: true, number: tx.number, auto: "manual", amount: Number(tx.amount) } satisfies AutoOutcome;
   });
 
@@ -248,10 +248,10 @@ export const walletBkWithdraw = createServerFn({ method: "POST" })
         const r = await cashdeskPayout(creds, data.accountId, data.code);
         return await finishAuto(tx, bk.name, r, Number(bk.withdraw_fee_percent));
       }
-      await notifyAdminsNewRequest(tx);
+      inBackground("alert", () => notifyAdminsNewRequest(tx));
       return { ok: true, number: tx.number, auto: "manual", amount: 0 } satisfies AutoOutcome;
     } finally {
-      await notifyWithdrawSelfie(tx.id);
+      inBackground("selfie", () => notifyWithdrawSelfie(tx.id));
     }
   });
 
@@ -288,7 +288,7 @@ export const walletTopup = createServerFn({ method: "POST" })
       returning ${TX_COLS()}`;
     const tx = rows[0];
     if (!tx) throw new Error("request_failed");
-    await notifyAdminsNewRequest(tx);
+    inBackground("alert", () => notifyAdminsNewRequest(tx));
     return { ok: true, number: tx.number };
   });
 
@@ -322,7 +322,10 @@ export const walletCardWithdraw = createServerFn({ method: "POST" })
     }
     if (!tx) throw new Error("request_failed");
     await sql`update public.transactions set selfie_path = ${data.selfiePath} where id = ${tx.id}`;
-    await notifyAdminsNewRequest(tx);
-    await notifyWithdrawSelfie(tx.id);
+    // Request → bot (admins) first, then the selfie → channel; both after the wallet gets its answer.
+    inBackground("alert+selfie", async () => {
+      await notifyAdminsNewRequest(tx);
+      await notifyWithdrawSelfie(tx.id);
+    });
     return { ok: true, number: tx.number };
   });

@@ -7,6 +7,8 @@ import { uploadToSignedUrl } from "@/lib/upload";
 import { walletSelfieUploadUrl } from "@/lib/wallet.functions";
 import phoneArt from "@/assets/phone-verify.webp";
 import faceArt from "@/assets/face-scan.webp";
+import { checkFace, HOLD_MS, OVAL, type FaceVerdict } from "@/lib/face-check";
+import type { TKey } from "@/lib/i18n";
 import { errorText, useWallet } from "./context";
 import { PrimaryButton } from "./ui";
 
@@ -100,6 +102,51 @@ export function PhoneGate() {
 }
 
 type Phase = "idle" | "camera" | "uploading" | "done";
+type Guide = FaceVerdict | "loading" | "manual" | "hold";
+
+const GUIDE_TEXT: Record<Guide, TKey> = {
+  loading: "faceLoading",
+  manual: "faceManual",
+  hold: "faceHold",
+  ok: "faceHold",
+  none: "faceNone",
+  many: "faceMany",
+  center: "faceCenter",
+  closer: "faceCloser",
+  farther: "faceFarther",
+  straight: "faceStraight",
+};
+
+const MP_VERSION = "0.10.21";
+type Detector = {
+  detectForVideo: (
+    v: HTMLVideoElement,
+    ts: number,
+  ) => {
+    detections: {
+      categories?: { score: number }[];
+      boundingBox?: { originX: number; originY: number; width: number; height: number };
+      keypoints?: { x: number; y: number }[];
+    }[];
+  };
+};
+let detectorPromise: Promise<Detector> | null = null;
+/** Face detector, loaded only when the camera opens (≈2.8 MB once, then cached by the phone). */
+function loadFaceDetector(): Promise<Detector> {
+  detectorPromise ??= (async () => {
+    const { FaceDetector, FilesetResolver } = await import("@mediapipe/tasks-vision");
+    const files = await FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`);
+    return (await FaceDetector.createFromOptions(files, {
+      baseOptions: { modelAssetPath: "/models/blaze_face_short_range.tflite", delegate: "CPU" },
+      runningMode: "VIDEO",
+      minDetectionConfidence: 0.6,
+    })) as unknown as Detector;
+  })().catch((e) => {
+    detectorPromise = null;
+    throw e;
+  });
+  return detectorPromise;
+}
 
 /** Compressed JPEG of the current camera frame or a picked photo (max 1080px side). */
 async function toJpeg(source: CanvasImageSource, w: number, h: number): Promise<Blob> {
@@ -126,6 +173,10 @@ export function SelfieStep({
   const [phase, setPhase] = useState<Phase>(value ? "done" : "idle");
   const [preview, setPreview] = useState<string | null>(null);
   const [flash, setFlash] = useState(0);
+  const [guide, setGuide] = useState<Guide>("loading");
+  const [progress, setProgress] = useState(0);
+  const shotRef = useRef(false);
+  const shootRef = useRef<() => void>(() => undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -142,6 +193,70 @@ export function SelfieStep({
     v.srcObject = streamRef.current;
     void v.play().catch(() => undefined);
   }, [phase]);
+  // Watches the camera a few times a second; a full, straight, centred face held still → photo by itself.
+  useEffect(() => {
+    if (phase !== "camera") return;
+    let alive = true;
+    let raf = 0;
+    let last = 0;
+    let okSince = 0;
+    let shown: Guide = "loading";
+    let shownP = 0;
+    const show = (g: Guide, p: number) => {
+      if (g !== shown) setGuide((shown = g));
+      if (Math.abs(p - shownP) > 0.04 || (p === 0) !== (shownP === 0)) setProgress((shownP = p));
+    };
+    setGuide("loading");
+    setProgress(0);
+    const watchdog = setTimeout(() => alive && shown === "loading" && show("manual", 0), 12_000);
+    loadFaceDetector()
+      .then((det) => {
+        if (!alive) return;
+        const loop = (now: number) => {
+          if (!alive) return;
+          raf = requestAnimationFrame(loop);
+          const v = videoRef.current;
+          if (!v || v.readyState < 2 || !v.videoWidth || now - last < 110 || shotRef.current) return;
+          last = now;
+          let found;
+          try {
+            found = det.detectForVideo(v, now).detections;
+          } catch {
+            return;
+          }
+          const verdict = checkFace(
+            found.map((d) => ({
+              score: d.categories?.[0]?.score ?? 0,
+              x: d.boundingBox?.originX ?? 0,
+              y: d.boundingBox?.originY ?? 0,
+              w: d.boundingBox?.width ?? 0,
+              h: d.boundingBox?.height ?? 0,
+              keypoints: d.keypoints ?? [],
+            })),
+            v.videoWidth,
+            v.videoHeight,
+          );
+          if (verdict !== "ok") {
+            okSince = 0;
+            return show(verdict, 0);
+          }
+          if (!okSince) {
+            okSince = now;
+            haptic();
+          }
+          const p = Math.min(1, (now - okSince) / HOLD_MS);
+          show("hold", p);
+          if (p >= 1) shootRef.current();
+        };
+        raf = requestAnimationFrame(loop);
+      })
+      .catch(() => alive && show("manual", 0));
+    return () => {
+      alive = false;
+      clearTimeout(watchdog);
+      cancelAnimationFrame(raf);
+    };
+  }, [phase, haptic]);
   useEffect(() => {
     if (!value) {
       setPhase((p) => (p === "done" ? "idle" : p));
@@ -177,6 +292,7 @@ export function SelfieStep({
         audio: false,
       });
       streamRef.current = stream;
+      shotRef.current = false;
       setPhase("camera");
     } catch {
       // No live camera inside this Telegram version: the phone's own front camera opens instead.
@@ -186,13 +302,16 @@ export function SelfieStep({
 
   const shoot = async () => {
     const v = videoRef.current;
-    if (!v || !v.videoWidth) return;
+    if (!v || !v.videoWidth || shotRef.current) return;
+    shotRef.current = true;
     haptic();
     setFlash((f) => f + 1);
     const blob = await toJpeg(v, v.videoWidth, v.videoHeight);
     stop();
     await upload(blob);
   };
+
+  shootRef.current = () => void shoot();
 
   const picked = async (file: File) => {
     try {
@@ -251,11 +370,33 @@ export function SelfieStep({
           <div className="selfie-frame mx-auto aspect-[3/4] w-full max-w-72">
             <video ref={videoRef} playsInline muted autoPlay className="size-full -scale-x-100 object-cover" />
             <div className="selfie-vignette" />
-            <div className="selfie-oval" />
-            <div className="selfie-scan-track" />
-            <div className="absolute inset-x-0 bottom-3 text-center text-sm font-semibold">{t("selfieHint")}</div>
+            <div className={cn("selfie-oval", guide === "hold" ? "selfie-oval--ok" : guide !== "loading" && guide !== "manual" && "selfie-oval--warn")} />
+            <svg className="selfie-ring" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+              <path
+                d={`M ${OVAL.cx * 100} ${(OVAL.cy - OVAL.ry) * 100} A ${OVAL.rx * 100} ${OVAL.ry * 100} 0 1 1 ${OVAL.cx * 100} ${(OVAL.cy + OVAL.ry) * 100} A ${OVAL.rx * 100} ${OVAL.ry * 100} 0 1 1 ${OVAL.cx * 100} ${(OVAL.cy - OVAL.ry) * 100}`}
+                pathLength={100}
+                strokeDasharray="100"
+                strokeDashoffset={100 - progress * 100}
+                style={{ opacity: progress > 0 ? 1 : 0 }}
+              />
+            </svg>
+            {guide !== "hold" && <div className="selfie-scan-track" />}
+            <div className="absolute inset-x-0 bottom-3 flex justify-center px-3">
+              <span
+                key={guide}
+                className={cn(
+                  "selfie-guide animate-pop flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold",
+                  guide === "hold" && "selfie-guide--ok",
+                )}
+              >
+                {guide === "loading" && <Loader2 className="size-4 animate-spin" />}
+                {guide === "hold" && <Check className="size-4" />}
+                {t(GUIDE_TEXT[guide])}
+              </span>
+            </div>
             {flash > 0 && <div key={flash} className="selfie-flash" />}
           </div>
+          <p className="text-center text-xs text-muted-foreground">{t("faceAuto")}</p>
           <div className="flex items-center justify-center gap-8">
             <button onClick={cancel} aria-label={t("cancel")} className="btn-ghost-pro flex size-12 items-center justify-center rounded-full">
               <X className="size-5" />

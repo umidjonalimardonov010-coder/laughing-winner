@@ -122,6 +122,16 @@ const uz = {
   selfieNoCamera: "Kamerani ochib bo'lmadi. Kameraga ruxsat bering.",
   selfieRequired: "Avval yuzingizni rasmga oling.",
   cancel: "Bekor qilish",
+  faceLoading: "Yuzni aniqlash yoqilmoqda…",
+  faceNone: "Yuzingizni oval ichiga joylang",
+  faceCenter: "Yuzingizni markazga keltiring",
+  faceCloser: "Biroz yaqinroq keling",
+  faceFarther: "Biroz uzoqroq turing",
+  faceStraight: "Kameraga to'g'ri qarang",
+  faceMany: "Kadrda faqat siz bo'ling",
+  faceHold: "Qimirlamang…",
+  faceManual: "Tugmani bosib suratga oling",
+  faceAuto: "Yuz to'liq ko'rinsa o'zi suratga oladi yoki tugmani bosing",
 };
 
 type Dict = typeof uz;
@@ -243,6 +253,16 @@ const ru: Dict = {
   selfieNoCamera: "Не удалось открыть камеру. Разрешите доступ к камере.",
   selfieRequired: "Сначала сделайте селфи.",
   cancel: "Отмена",
+  faceLoading: "Включаем распознавание лица…",
+  faceNone: "Поместите лицо в овал",
+  faceCenter: "Расположите лицо по центру",
+  faceCloser: "Подойдите чуть ближе",
+  faceFarther: "Отодвиньтесь чуть дальше",
+  faceStraight: "Смотрите прямо в камеру",
+  faceMany: "В кадре должны быть только вы",
+  faceHold: "Не двигайтесь…",
+  faceManual: "Нажмите кнопку, чтобы сделать фото",
+  faceAuto: "Снимок сделается сам, когда лицо видно полностью, или нажмите кнопку",
 };
 
 const en: Dict = {
@@ -362,6 +382,16 @@ const en: Dict = {
   selfieNoCamera: "Couldn't open the camera. Please allow camera access.",
   selfieRequired: "Please take a selfie first.",
   cancel: "Cancel",
+  faceLoading: "Starting face detection…",
+  faceNone: "Place your face inside the oval",
+  faceCenter: "Move your face to the centre",
+  faceCloser: "Come a little closer",
+  faceFarther: "Move a little further away",
+  faceStraight: "Look straight at the camera",
+  faceMany: "Only you should be in the frame",
+  faceHold: "Hold still…",
+  faceManual: "Press the button to take the photo",
+  faceAuto: "It shoots by itself when your whole face is visible, or press the button",
 };
 
 export const DICTS: Record<Lang, Dict> = { uz, ru, en };

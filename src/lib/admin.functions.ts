@@ -482,6 +482,7 @@ export const adminConnectBot = createServerFn({ method: "POST" })
         commands: [
           { command: "admin", description: "🛠 Admin panel" },
           { command: "karta", description: "To'ldirish kartasini o'zgartirish" },
+          { command: "kanal", description: "🤳 Selfi kanalini ulash" },
           { command: "start", description: "Boshlash / Начать" },
           { command: "menu", description: "Asosiy menyu / Главное меню" },
           { command: "lang", description: "Tilni o'zgartirish / Сменить язык" },

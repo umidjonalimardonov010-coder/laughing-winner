@@ -20,6 +20,13 @@ export const SETTING_KEYS = [
   "daily_withdraw_limit",
   "weekly_withdraw_limit",
   "suspicious_repeat_count",
+  "bonus_referral_reward",
+  "bonus_daily_min",
+  "bonus_daily_max",
+  "bonus_withdraw_min",
+  "bonus_withdraw_mode",
+  "rates_sell",
+  "rates_buy",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 export type Settings = Record<SettingKey, string>;

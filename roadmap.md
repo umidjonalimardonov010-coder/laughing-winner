@@ -46,3 +46,9 @@
 - [x] Remove the WALLET mini app; keep the admin panel
 - [x] Rebuild the bot like the screenshots: language → phone → main keyboard (Hisob to'ldirish, Hisob raqamlar, Yechib olish, Amallar/Kurs-Zahira, Bog'lanish), BK list, saved BK account IDs
 - [ ] Push to GitHub once the bot is done
+- [ ] Bring over the per-bookmaker cashdesk keys work from the other Lovable project — waiting: user pushes it to GitHub from that project
+- [ ] railway/setup.sql: add the bot tables (bot_state, user_accounts, etc.)
+- [ ] Finish the "withdraw request kept when keys are refused" check
+- [x] Bot "💰 Bonus olish" menu: Balans (+ Yechib olish → Linebet), Do'stimni chaqirish (fixed som per referral, set in admin), Kunlik bonus (min–max som, set in admin)
+- [x] Bot «Kurs | Zahira»: admin types sell/buy rate lines in Sozlamalar → Kurs
+- [ ] Push bonus menu + rates to GitHub — waiting until the other project's push lands (else one push overwrites the other)

@@ -17,7 +17,7 @@ import { resolveBotUsername } from "./bot-username.server";
 import { formatDateTime, formatSom, maskCard } from "@/lib/format";
 import { matchReply, replyText, type AutoReply } from "@/lib/auto-reply";
 import { cached } from "./memo.server";
-import { adminKeyboard } from "./notify.server";
+import { adminKeyboard, inBackground, notifyAdminsNewRequest } from "./notify.server";
 import { depositSplit, parseAccountId, parseAmount, parseUzCard, parseWithdrawCode, pickPayAmount } from "@/lib/exchange-rules";
 import {
   clearState,
@@ -34,6 +34,10 @@ import {
   type StepData,
 } from "./exchange.server";
 import type { Bookmaker } from "./wallet-auth.server";
+import { BONUS_BK, autoSendBonus, bonusBalance, createBonusWithdraw } from "./bonus.server";
+import { BONUS_TXT, balanceScreen, dailyScreen, inviteScreen } from "./bot-bonus.server";
+import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
+import { defaultRateLine, rateLines } from "@/lib/rates";
 
 type L = "uz" | "ru";
 const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : "uz");
@@ -49,6 +53,10 @@ const MENU = {
     rates: "🏧 Kurs | 💰 Zahira",
     back: "🔙 Bosh menyu",
     cancel: "↪️ Bekor qilish",
+    bonus: "💰 BONUS OLISH",
+    balance: "💳 BALANS",
+    invite: "👥 DO'STIMNI CHAQIRISH",
+    daily: "🎁 KUNLIK BONUS",
   },
   ru: {
     deposit: "📮 Пополнить счёт",
@@ -60,6 +68,10 @@ const MENU = {
     rates: "🏧 Курс | 💰 Резерв",
     back: "🔙 Главное меню",
     cancel: "↪️ Отмена",
+    bonus: "💰 ПОЛУЧИТЬ БОНУС",
+    balance: "💳 БАЛАНС",
+    invite: "👥 ПРИГЛАСИТЬ ДРУГА",
+    daily: "🎁 ЕЖЕДНЕВНЫЙ БОНУС",
   },
 };
 type MenuKey = keyof (typeof MENU)["uz"];
@@ -212,6 +224,7 @@ function mainKeyboard(l: L, admin = false) {
       [{ text: m.deposit, style: "success" }],
       [{ text: m.accounts }, { text: m.withdraw, style: "primary" }],
       [{ text: m.ops }, { text: m.contact }],
+      [{ text: m.bonus, style: "success" }],
       ...(admin ? [[{ text: ADMIN_BUTTON }]] : []),
     ],
     resize_keyboard: true,
@@ -222,6 +235,15 @@ function mainKeyboard(l: L, admin = false) {
 function opsKeyboard(l: L) {
   const m = MENU[l];
   return { keyboard: [[{ text: m.history }, { text: m.rates }], [{ text: m.back }]], resize_keyboard: true, is_persistent: true };
+}
+
+function bonusKeyboard(l: L) {
+  const m = MENU[l];
+  return {
+    keyboard: [[{ text: m.balance, style: "primary" }], [{ text: m.invite }, { text: m.daily, style: "success" }], [{ text: m.back }]],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
 }
 
 /** Bottom keyboard during a step: the saved value (one tap) and "Cancel". */
@@ -574,9 +596,13 @@ async function showHistory(chatId: number, l: L, userId: number) {
 async function showRates(chatId: number, l: L, s: Settings) {
   const bks = await bkList(s);
   const t = TXT[l];
-  const line = (b: Bookmaker, fee: number) => `1 ${escapeHtml(b.name)} = 1 UZS${fee > 0 ? ` (−${fee}%)` : ""}`;
-  const dep = bks.filter((b) => b.deposit_enabled).map((b) => line(b, Number(b.deposit_fee_percent)));
-  const wd = bks.filter((b) => b.withdraw_enabled).map((b) => line(b, Number(b.withdraw_fee_percent)));
+  // Admin panel → Sozlamalar → Kurs; until typed, 1 to 1 for each open bookmaker.
+  const pick = (typed: string, open: Bookmaker[]) => {
+    const lines = rateLines(typed);
+    return (lines.length ? lines : open.map((b) => defaultRateLine(b.name))).map(escapeHtml);
+  };
+  const dep = pick(s.rates_sell, bks.filter((b) => b.deposit_enabled));
+  const wd = pick(s.rates_buy, bks.filter((b) => b.withdraw_enabled));
   await say(chatId, `${t.sell}\n${dep.join("\n") || "—"}\n\n${t.buy}\n${wd.join("\n") || "—"}`, {
     inline_keyboard: [[{ text: t.reserveBtn, callback_data: "reserve" }]],
   });
@@ -624,6 +650,27 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
     return sendMainMenu(chatId, l, s);
   }
   const bkName = escapeHtml(bk?.name ?? "");
+
+  if (st.step === "bonus_account") {
+    const acc = parseAccountId(text);
+    if (!acc) return say(chatId, t.badAccount);
+    if ((await accountExists(bk!.id, acc)) === false) return say(chatId, t.noAccount);
+    await saveAccount(user.id, bk!.id, acc);
+    const check = checkBonusWithdraw(await bonusBalance(user.id), bonusConfig(s).withdrawMin);
+    if (!check.ok) {
+      await clearState(user.id);
+      return say(chatId, BONUS_TXT[l].belowMin(await bonusBalance(user.id), check.min), bonusKeyboard(l));
+    }
+    await setState(user.id, "bonus_confirm", { bk: bk!.id, account: acc });
+    // Bonus keyboard back at the bottom; the confirm button sits under the summary.
+    await say(chatId, t.accSaved(bkName), bonusKeyboard(l));
+    return say(chatId, BONUS_TXT[l].confirm(escapeHtml(acc), check.amount), {
+      inline_keyboard: [[{ text: BONUS_TXT[l].confirmBtn, callback_data: "bonus:ok", style: "success" }]],
+    });
+  }
+  if (st.step === "bonus_confirm") {
+    return say(chatId, l === "ru" ? "Нажмите «✅ Подтвердить» под сообщением выше." : "Yuqoridagi «✅ Tasdiqlash» tugmasini bosing.");
+  }
 
   if (st.step === "dep_account" || st.step === "wd_account" || st.step === "set_acc") {
     const acc = parseAccountId(text);
@@ -732,6 +779,19 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
     return sendMainMenu(chatId, l, s, t.paidSent(tx.number));
   }
 
+  if (data === "bonus:wd") {
+    const b = BONUS_TXT[l];
+    const bk = await findBk(BONUS_BK, s);
+    if (!bk) return say(chatId, b.noBk);
+    const bal = await bonusBalance(user.id);
+    const check = checkBonusWithdraw(bal, bonusConfig(s).withdrawMin);
+    if (!check.ok) return say(chatId, b.belowMin(bal, check.min));
+    await setState(user.id, "bonus_account", { bk: bk.id });
+    const saved = await savedAccounts(user.id);
+    return say(chatId, b.askAccount, stepKeyboard(l, saved[bk.id]));
+  }
+  if (data === "bonus:ok") return confirmBonusWithdraw(cq, chatId, l, s, user);
+
   const [kind, id] = data.split(":");
   if (kind === "acc" && id === "card") {
     await setState(user.id, "set_card", {});
@@ -757,6 +817,32 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
   }
 }
 
+
+/** "✅ Tasdiqlash" under the bonus summary: the whole bonus balance goes to the LINEBET account. */
+async function confirmBonusWithdraw(cq: Update, chatId: number, l: L, s: Settings, user: TgUser) {
+  const b = BONUS_TXT[l];
+  const d = await takeState(user.id, "bonus_confirm");
+  if (!d?.account) return say(chatId, TXT[l].expired, bonusKeyboard(l));
+  const start = await createBonusWithdraw(user.id, d.account, s);
+  if (start.kind === "refused") return say(chatId, b.belowMin(await bonusBalance(user.id), bonusConfig(s).withdrawMin), bonusKeyboard(l));
+  const tx = start.tx;
+  if (cq.message?.message_id)
+    await tg("editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: cq.message.message_id,
+      reply_markup: { inline_keyboard: [[{ text: b.sending(tx.number), callback_data: "noop" }]] },
+    }).catch(() => undefined);
+  if (!bonusConfig(s).withdrawAuto) {
+    inBackground("alert", () => notifyAdminsNewRequest(tx));
+    return say(chatId, b.sent(tx.number), bonusKeyboard(l));
+  }
+  const r = await autoSendBonus(tx);
+  if (r.kind === "refunded") return say(chatId, b.refunded(escapeHtml(r.message)), bonusKeyboard(l));
+  // Admins see every bonus payout; a pending one keeps its ✅ / ❌ buttons.
+  inBackground("alert", () => notifyAdminsNewRequest({ ...r.tx, source: "bonus" }));
+  if (r.kind === "done") return say(chatId, b.done(r.tx.number, r.tx.amount, escapeHtml(d.account ?? "")), bonusKeyboard(l));
+  return say(chatId, b.sent(tx.number), bonusKeyboard(l));
+}
 
 export async function handleUpdate(update: Update, fallbackOrigin: string) {
   await ensureMigrations();
@@ -866,6 +952,12 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     if (action === "history") return showHistory(chatId, l, user.id);
     if (action === "rates") return showRates(chatId, l, s);
     if (action === "contact") return showContact(chatId, l, s);
+    if (action === "bonus") return say(chatId, BONUS_TXT[l].menu, bonusKeyboard(l));
+    if (action === "balance" || action === "invite" || action === "daily") {
+      const screen =
+        action === "balance" ? await balanceScreen(l, s, user.id) : action === "invite" ? await inviteScreen(l, s, user.id) : await dailyScreen(l, s, user.id);
+      return say(chatId, screen.text, screen.markup);
+    }
     return;
   }
 

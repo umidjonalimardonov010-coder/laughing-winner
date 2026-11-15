@@ -151,6 +151,8 @@ export async function notifyAdminsNewRequest(tx: Tx) {
       if (tx.amount) lines.push(`💰 Summa: <b>${formatSom(tx.amount)} so'm</b>`);
       if (tx.bonus) lines.push(`🎁 Bonus: +${formatSom(tx.bonus)} so'm (BK hisobiga jami <b>${formatSom(tx.amount + tx.bonus)} so'm</b>)`);
     }
+    if (source === "bonus")
+      lines.push("🎁 <b>Bonus balansdan</b> LINEBET hisobiga (balansdan yechib qo'yilgan)");
     if (tx.admin_note) lines.push(`💬 ${escapeHtml(tx.admin_note)}`);
     // A wallet code withdrawal needs the amount typed in the panel; everything else can be decided right here.
     const needsAmount = !bot && tx.type === "bk_withdraw" && !tx.amount;
@@ -158,6 +160,8 @@ export async function notifyAdminsNewRequest(tx: Tx) {
     if (bot && tx.type === "bk_deposit")
       lines.push("", "👉 Pul kartangizga tushganini tekshiring, keyin «✅ Pul tushdi» — bukmeker hisobiga avtomatik o'tadi.");
     if (bot && tx.type === "bk_withdraw") lines.push("", "👉 Pulni mijoz kartasiga o'tkazing, keyin «✅ Kartaga o'tkazdim».");
+    if (source === "bonus" && tx.status === "pending")
+      lines.push("", "👉 «✅ Tasdiqlash» — kassa orqali LINEBET hisobiga o'tadi (kassa ulanmagan bo'lsa avval qo'lda to'ldiring). «❌» — pul mijozning bonus balansiga qaytadi.");
     lines.push(LINE, `🕒 ${tashkentNow()}`);
     if (isWithdraw && !bot) lines.push(s.selfie_channel_id.trim() ? "🤳 Yuz surati — selfi kanalida" : "⚠️ Selfi kanali ulanmagan — /kanal");
     const base = publicBase(s);

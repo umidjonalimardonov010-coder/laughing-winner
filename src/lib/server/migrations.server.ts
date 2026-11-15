@@ -5,6 +5,7 @@ import { withOwnerAdmin } from "./admins";
 import { tg, telegramMode, webhookSecret } from "./telegram.server";
 import { FAQ } from "@/lib/i18n";
 import { applyBotProfile } from "./bot-profile.server";
+import { BONUS_DEFAULTS } from "@/lib/bonus-rules";
 
 // Keywords for the starter bot auto-replies (one per built-in FAQ entry, same order).
 const FAQ_KEYWORDS = [
@@ -155,6 +156,20 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
         await applyBotProfile(rows[0]?.value ?? "");
       } catch (e) {
         console.error("[migrations] bot profile", e);
+      }
+    },
+  },
+  {
+    // Bonus menu: daily bonus day, "referral already paid" mark, admin defaults.
+    // Friends who already had an approved deposit count as paid — the reward is for new first deposits.
+    id: "2026-11-15-bonus-menu",
+    run: async () => {
+      await sql`alter table public.tg_users add column if not exists last_daily_bonus date`;
+      await sql`alter table public.tg_users add column if not exists referral_paid boolean not null default false`;
+      await sql`update public.tg_users u set referral_paid = true
+        where exists (select 1 from public.transactions t where t.user_id = u.id and t.type = 'bk_deposit' and t.status = 'approved')`;
+      for (const [key, value] of Object.entries(BONUS_DEFAULTS)) {
+        await sql`insert into public.app_settings (key, value) values (${key}, ${value}) on conflict (key) do nothing`;
       }
     },
   },

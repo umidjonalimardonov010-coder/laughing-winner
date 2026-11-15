@@ -18,7 +18,17 @@ export const Route = createFileRoute("/admin/settings")({
   component: SettingsPage,
 });
 
-const GROUPS: { title: string; fields: { key: string; label: string; hint?: string; placeholder?: string }[] }[] = [
+type Field = {
+  key: string;
+  label: string;
+  hint?: string;
+  placeholder?: string;
+  options?: { value: string; label: string }[];
+  /** Several lines (textarea). */
+  multiline?: boolean;
+};
+
+const GROUPS: { title: string; fields: Field[] }[] = [
   {
     title: "Umumiy",
     fields: [{ key: "brand_name", label: "Xizmat nomi", hint: "Bot xabarlarida va tavsifida ko'rinadi", placeholder: "Kassa 24/7" }],
@@ -30,6 +40,25 @@ const GROUPS: { title: string; fields: { key: string; label: string; hint?: stri
       { key: "card_holder", label: "Karta egasi", placeholder: "ISM FAMILIYA" },
       { key: "min_topup", label: "Minimal to'ldirish (so'm)", hint: "Bukmekerda min summa yozilmagan bo'lsa" },
       { key: "max_topup", label: "Maksimal to'ldirish (so'm)", hint: "Bukmekerda max summa yozilmagan bo'lsa" },
+    ],
+  },
+  {
+    title: "🏧 Kurs (botdagi «Kurs | Zahira»)",
+    fields: [
+      {
+        key: "rates_sell",
+        label: "📊 Sotish kursi (hisob to'ldirish)",
+        hint: "Har qatorga bitta kurs, botda aynan shunday chiqadi. Bo'sh bo'lsa: har bir bukmeker uchun «1 … UZS = 1 UZS».",
+        placeholder: "1 LINEBET UZS = 1 UZS\n1 LINEBET RUB = 160 UZS\n1 LINEBET USD = 12500 UZS",
+        multiline: true,
+      },
+      {
+        key: "rates_buy",
+        label: "📊 Olish kursi (yechib olish)",
+        hint: "Har qatorga bitta kurs. Bo'sh bo'lsa: har bir bukmeker uchun «1 … UZS = 1 UZS».",
+        placeholder: "1 LINEBET UZS = 1 UZS\n1 LINEBET RUB = 160 UZS\n1 LINEBET USD = 12500 UZS",
+        multiline: true,
+      },
     ],
   },
   {
@@ -47,6 +76,34 @@ const GROUPS: { title: string; fields: { key: string; label: string; hint?: stri
     title: "Bonuslar",
     fields: [
       { key: "deposit_bonus_percent", label: "Hisob to'ldirish bonusi, %", hint: "Mijoz BK hisobiga summa + shu foizni oladi («Olish» summasi). 0 — bonus yo'q, berish = olish." },
+    ],
+  },
+  {
+    title: "💰 Bonus olish (botdagi menyu)",
+    fields: [
+      {
+        key: "bonus_referral_reward",
+        label: "Har bir do'st uchun bonus (so'm)",
+        hint: "Taklif qilingan do'st birinchi marta hisob to'ldirganda (admin tasdiqlagach) taklif qilganga shuncha so'm tushadi. 0 — o'chirilgan.",
+        placeholder: "500",
+      },
+      { key: "bonus_daily_min", label: "Kunlik bonus — eng kam (so'm)", placeholder: "1000" },
+      {
+        key: "bonus_daily_max",
+        label: "Kunlik bonus — eng ko'p (so'm)",
+        hint: "Har kuni (Toshkent vaqti bilan) bir marta shu oraliqdagi tasodifiy summa beriladi. Ikkalasi teng bo'lsa — har kuni bir xil. 0 — o'chirilgan.",
+        placeholder: "3000",
+      },
+      { key: "bonus_withdraw_min", label: "LINEBET'ga yechish — eng kam summa (so'm)", hint: "Bonus balans shundan kam bo'lsa yechib bo'lmaydi.", placeholder: "10000" },
+      {
+        key: "bonus_withdraw_mode",
+        label: "LINEBET'ga yechish qanday bo'lsin",
+        hint: "Avto — kassa orqali darhol o'tadi (kassa ulangan bo'lsa). Admin — har bir so'rovga siz ✅ bosasiz. ❌ bosilsa pul mijozning bonus balansiga qaytadi.",
+        options: [
+          { value: "manual", label: "Admin tasdiqlaydi" },
+          { value: "auto", label: "Avtomatik (kassa orqali)" },
+        ],
+      },
     ],
   },
   {
@@ -88,7 +145,7 @@ function SettingsPage() {
             setBusy(true);
             try {
               const out: Record<string, string> = {};
-              for (const g of GROUPS) for (const f of g.fields) out[f.key] = form[f.key] ?? "";
+              for (const g of GROUPS) for (const f of g.fields) out[f.key] = form[f.key] || (f.options?.[0]?.value ?? "");
               await adminSaveSettings({ data: out });
               toast.success("Sozlamalar saqlandi");
               qc.invalidateQueries({ queryKey: ["admin-settings"] });
@@ -104,14 +161,39 @@ function SettingsPage() {
               <div className="font-semibold">{g.title}</div>
               <div className="grid gap-4 sm:grid-cols-2">
                 {g.fields.map((f) => (
-                  <label key={f.key} className={f.hint && f.hint.length > 60 ? "block space-y-1.5 sm:col-span-2" : "block space-y-1.5"}>
+                  <label
+                    key={f.key}
+                    className={f.multiline || (f.hint && f.hint.length > 60) ? "block space-y-1.5 sm:col-span-2" : "block space-y-1.5"}
+                  >
                     <span className="text-sm font-medium">{f.label}</span>
-                    <input
-                      value={form[f.key] ?? ""}
-                      placeholder={f.placeholder}
-                      onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                      className="h-10 w-full rounded-xl border border-input bg-secondary px-3 outline-none focus:border-primary"
-                    />
+                    {f.multiline ? (
+                      <textarea
+                        value={form[f.key] ?? ""}
+                        placeholder={f.placeholder}
+                        rows={4}
+                        onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-input bg-secondary px-3 py-2 font-mono text-sm outline-none focus:border-primary"
+                      />
+                    ) : f.options ? (
+                      <select
+                        value={form[f.key] || f.options[0]?.value}
+                        onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="h-10 w-full rounded-xl border border-input bg-secondary px-3 outline-none focus:border-primary"
+                      >
+                        {f.options.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={form[f.key] ?? ""}
+                        placeholder={f.placeholder}
+                        onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="h-10 w-full rounded-xl border border-input bg-secondary px-3 outline-none focus:border-primary"
+                      />
+                    )}
                     {f.hint && <span className="block text-xs text-muted-foreground">{f.hint}</span>}
                   </label>
                 ))}

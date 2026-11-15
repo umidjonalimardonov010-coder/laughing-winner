@@ -19,7 +19,9 @@ export type BotStep =
   | "wd_account"
   | "wd_code"
   | "set_card"
-  | "set_acc";
+  | "set_acc"
+  | "bonus_account"
+  | "bonus_confirm";
 
 export type StepData = {
   bk?: string;

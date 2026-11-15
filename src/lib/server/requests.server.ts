@@ -7,12 +7,18 @@ import { TX_COLS, type TxRow } from "./tx.server";
 import { isAdminId } from "./admins";
 import { releasePromo } from "./safety.server";
 import { approveBotRequest, rejectBotRequest, txSource } from "./exchange.server";
+import { notifyBonusRefund, rejectBonusWithdraw, rewardReferrer } from "./bonus.server";
+import { inBackground } from "./notify.server";
 
 export async function approveRequest(id: string, amount = 0, note = ""): Promise<TxRow> {
   // Chat-bot requests move money between the card and the bookmaker directly (no wallet balance).
-  if ((await txSource(id)) === "bot") {
+  // 'bonus' = bonus balance sent to LINEBET: same cashdesk top-up as a bot deposit.
+  const source = await txSource(id);
+  if (source === "bot" || source === "bonus") {
     const done = await approveBotRequest(id, amount, note);
     await notifyUserStatus(done);
+    // A friend's first approved deposit pays the inviter's referral reward (once).
+    if (source === "bot" && done.type === "bk_deposit") inBackground("referral", () => rewardReferrer(done.user_id));
     return done;
   }
   const t = await maybeOne(
@@ -38,7 +44,13 @@ export async function approveRequest(id: string, amount = 0, note = ""): Promise
 }
 
 export async function rejectRequest(id: string, note = ""): Promise<TxRow> {
-  if ((await txSource(id)) === "bot") {
+  const source = await txSource(id);
+  if (source === "bonus") {
+    const done = await rejectBonusWithdraw(id, note);
+    await notifyBonusRefund(done);
+    return done;
+  }
+  if (source === "bot") {
     const done = await rejectBotRequest(id, note);
     await notifyUserStatus(done);
     return done;

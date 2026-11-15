@@ -452,11 +452,21 @@ export const adminSaveSettings = createServerFn({ method: "POST" })
     const card = clean["card_number"];
     if (card) clean["card_number"] = card.replace(/\D/g, "");
     // "1 000 000" → "1000000": a limit typed with spaces must not silently turn into "no limit".
-    for (const k of ["daily_withdraw_limit", "weekly_withdraw_limit", "suspicious_repeat_count"] as const) {
+    for (const k of [
+      "daily_withdraw_limit",
+      "weekly_withdraw_limit",
+      "suspicious_repeat_count",
+      "bonus_referral_reward",
+      "bonus_daily_min",
+      "bonus_daily_max",
+      "bonus_withdraw_min",
+    ] as const) {
       const v = clean[k];
       if (v !== undefined) clean[k] = v.replace(/[\s,'_]/g, "") || "0";
       if (clean[k] !== undefined && !/^\d+$/.test(clean[k]!)) throw new Error(`Faqat raqam kiriting: ${k}`);
     }
+    const mode = clean["bonus_withdraw_mode"];
+    if (mode !== undefined && mode !== "auto" && mode !== "manual") clean["bonus_withdraw_mode"] = "manual";
     await saveSettings(clean);
     return { ok: true };
   });

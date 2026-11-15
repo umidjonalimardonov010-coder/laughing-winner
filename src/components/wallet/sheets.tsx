@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, ImagePlus, Loader2, MapPin, Wallet, X } from "lucide-react";
+import { Check, Copy, ImagePlus, Loader2, MapPin, Send, Ticket, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { uploadToSignedUrl } from "@/lib/upload";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import {
   walletBkWithdraw,
   walletCardWithdraw,
   walletCheckAccount,
+  walletCheckPromo,
   walletReceiptUploadUrl,
   walletReferrals,
   walletTopup,
@@ -19,6 +20,7 @@ import {
 import { errorText, useWallet, type Bookmaker } from "./context";
 import { BkLogo, BottomSheet, inputCls, PrimaryButton, Step } from "./ui";
 import { SelfieStep } from "./verify";
+import { referralLink, shareLink } from "@/lib/referral";
 
 const digits = (s: string) => s.replace(/\D/g, "");
 const amountFmt = (s: string) => formatSom(Number(digits(s) || 0)).replace(/^0$/, "");
@@ -68,11 +70,16 @@ export function BookmakerSheet({
   const [code, setCode] = useState("");
   const [selfie, setSelfie] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [promo, setPromo] = useState("");
+  const [promoOk, setPromoOk] = useState<{ code: string; percent: number } | null>(null);
+  const [promoBusy, setPromoBusy] = useState(false);
   const done = useAfterSuccess();
 
   useEffect(() => {
     if (!bk) return;
     setSelfie(null);
+    setPromo("");
+    setPromoOk(null);
     setMode(initialMode === "deposit" && !bk.deposit_enabled ? "withdraw" : initialMode === "withdraw" && !bk.withdraw_enabled ? "deposit" : initialMode);
     setAccount("");
     setChecked(false);
@@ -106,6 +113,25 @@ export function BookmakerSheet({
     }
   };
 
+  const applyPromo = async () => {
+    setPromoBusy(true);
+    try {
+      const r = await walletCheckPromo({ data: { initData, code: promo } });
+      if (r.ok) {
+        setPromoOk({ code: r.code, percent: r.percent });
+        haptic("success");
+        toast.success(t("promoApplied", { p: r.percent }));
+      } else {
+        haptic("error");
+        toast.error(t(`promo_${r.problem}`));
+      }
+    } catch (e) {
+      toast.error(errorText(t, e));
+    } finally {
+      setPromoBusy(false);
+    }
+  };
+
   const submit = async () => {
     if (!checked) {
       toast.error(t("checkFirst"));
@@ -116,7 +142,9 @@ export function BookmakerSheet({
       if (mode === "deposit") {
         if (amt < bk.min_amount || amt > bk.max_amount) throw new Error("invalid_amount");
         if (amt > boot.user.balance) throw new Error("insufficient");
-        const r = await walletBkDeposit({ data: { initData, bookmakerId: bk.id, accountId: account, amount: amt } });
+        const r = await walletBkDeposit({
+          data: { initData, bookmakerId: bk.id, accountId: account, amount: amt, ...(promoOk ? { promoCode: promoOk.code } : {}) },
+        });
         await done(r.number, r.auto);
       } else {
         if (!/^[A-Za-z0-9]{4}$/.test(code)) {
@@ -214,8 +242,48 @@ export function BookmakerSheet({
             <AmountInput value={amount} onChange={setAmount} disabled={!checked} placeholder={`${range.min} - ${range.max}`} />
             <div className="mt-2 text-center text-sm text-muted-foreground">
               {range.min} — {range.max} {t("som")}
-              {boot.settings.deposit_bonus_percent > 0 && (
-                <span className="ml-2 text-primary">{t("bonusNote", { p: boot.settings.deposit_bonus_percent })}</span>
+              {boot.settings.deposit_bonus_percent + (promoOk?.percent ?? 0) > 0 && (
+                <span className="ml-2 text-primary">{t("bonusNote", { p: boot.settings.deposit_bonus_percent + (promoOk?.percent ?? 0) })}</span>
+              )}
+            </div>
+            <div className="mt-3">
+              {promoOk ? (
+                <div className="flex items-center gap-3 rounded-2xl border border-primary/40 bg-primary/10 px-4 py-3">
+                  <Ticket className="size-5 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono font-semibold">{promoOk.code}</div>
+                    <div className="text-sm text-primary">{t("promoApplied", { p: promoOk.percent })}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setPromoOk(null);
+                      setPromo("");
+                    }}
+                    className="text-sm text-muted-foreground underline-offset-4 active:underline"
+                  >
+                    {t("promoRemove")}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    value={promo}
+                    disabled={!checked}
+                    onChange={(e) => setPromo(e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 32))}
+                    placeholder={t("promoLabel")}
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className={cn(inputCls, "h-12 flex-1 font-mono text-base")}
+                  />
+                  <button
+                    onClick={applyPromo}
+                    disabled={!checked || promo.length < 2 || promoBusy}
+                    className="btn-ghost-pro flex h-12 min-w-24 items-center justify-center rounded-2xl px-4 font-semibold disabled:opacity-50"
+                  >
+                    {promoBusy ? <Loader2 className="size-5 animate-spin" /> : t("promoApply")}
+                  </button>
+                </div>
               )}
             </div>
           </Step>
@@ -413,6 +481,22 @@ export function CardWithdrawSheet({ open, onClose }: { open: boolean; onClose: (
           <div className="mt-2 text-center text-sm text-muted-foreground">
             {range.min} — {range.max} {t("som")}
           </div>
+          {s.daily_withdraw_limit > 0 && (
+            <div className="mt-1 text-center text-sm text-warning">
+              {t("limitInfo", {
+                limit: formatSom(s.daily_withdraw_limit),
+                left: formatSom(Math.max(0, s.daily_withdraw_limit - boot.withdrawUsage.today)),
+              })}
+            </div>
+          )}
+          {s.weekly_withdraw_limit > 0 && (
+            <div className="mt-1 text-center text-sm text-warning">
+              {t("limitWeekInfo", {
+                limit: formatSom(s.weekly_withdraw_limit),
+                left: formatSom(Math.max(0, s.weekly_withdraw_limit - boot.withdrawUsage.week)),
+              })}
+            </div>
+          )}
         </Step>
         <SelfieStep value={selfie} onChange={setSelfie} disabled={card.length !== 16 || !amt} />
         <PrimaryButton onClick={submit} disabled={busy || card.length !== 16 || !amt || !selfie}>
@@ -424,24 +508,53 @@ export function CardWithdrawSheet({ open, onClose }: { open: boolean; onClose: (
 }
 
 export function ReferralsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { t, initData, boot } = useWallet();
+  const { t, initData, boot, haptic, openLink } = useWallet();
   const q = useQuery({
     queryKey: ["wallet-refs", boot.user.id],
     queryFn: () => walletReferrals({ data: { initData } }),
     enabled: open,
+    staleTime: 60_000,
   });
+  const link = referralLink(boot.settings.bot_username, boot.user.id);
   return (
     <BottomSheet open={open} onOpenChange={(o) => !o && onClose()} title={t("myReferrals")}>
-      <div className="mb-4 grid grid-cols-2 gap-3">
+      <div className="mb-3 grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-border bg-card/60 p-4">
           <div className="text-sm text-muted-foreground">{t("myReferrals")}</div>
           <div className="font-display text-2xl font-bold">{boot.user.referrals}</div>
         </div>
         <div className="rounded-2xl border border-border bg-card/60 p-4">
-          <div className="text-sm text-muted-foreground">Bonus</div>
-          <div className="tabular font-display text-2xl font-bold text-primary">{formatSom(boot.user.referral_earned)}</div>
+          <div className="text-sm text-muted-foreground">{t("refBonus")}</div>
+          <div className="tabular font-display text-2xl font-bold text-primary">
+            {formatSom(boot.user.referral_earned)} <span className="text-base font-semibold text-gold">{t("som")}</span>
+          </div>
         </div>
       </div>
+      {link && (
+        <div className="mb-4 space-y-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+          <div className="text-sm text-muted-foreground">{t("yourLink")}</div>
+          <div className="break-all font-mono text-sm">{link.replace(/^https:\/\//, "")}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(link);
+                haptic("success");
+                toast.success(t("copied"));
+              }}
+              className="btn-ghost-pro flex h-12 items-center justify-center gap-2 rounded-2xl font-semibold"
+            >
+              <Copy className="size-4" /> {t("copied").split(" ")[0]}
+            </button>
+            <button
+              onClick={() => openLink(shareLink(link, t("shareText")))}
+              className="btn-pro flex h-12 items-center justify-center gap-2 rounded-2xl font-bold"
+            >
+              <Send className="size-4" /> {t("share")}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("refHow", { p: boot.settings.referral_percent })}</p>
+        </div>
+      )}
       {q.isLoading ? (
         <Loader2 className="mx-auto my-8 size-6 animate-spin text-muted-foreground" />
       ) : !q.data?.length ? (

@@ -335,9 +335,10 @@ html, body { overscroll-behavior: none; }
   0%, 100% { opacity: 0.55; transform: scale(1); }
   50% { opacity: 1; transform: scale(1.08); }
 }
+/* Screen change: a small slide only — content stays fully visible, nothing blinks. */
 @keyframes rise-in {
-  from { opacity: 0.35; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { transform: translateY(6px); }
+  to { transform: translateY(0); }
 }
 @keyframes hero-bob {
   0%, 100% { transform: translateY(0) rotate(-2deg); }

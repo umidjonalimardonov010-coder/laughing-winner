@@ -1,5 +1,7 @@
 import { createContext, useContext } from "react";
 import type { Lang, TKey } from "@/lib/i18n";
+import { parseLimitError } from "@/lib/money-rules";
+import { formatSom } from "@/lib/format";
 import type { walletBootstrap } from "@/lib/wallet.functions";
 
 export type Boot = Awaited<ReturnType<typeof walletBootstrap>>;
@@ -28,6 +30,11 @@ export function useWallet() {
 
 export function errorText(t: WalletCtx["t"], e: unknown, vars?: Record<string, string | number>) {
   const m = e instanceof Error ? e.message : String(e);
+  const limit = parseLimitError(m);
+  if (limit) return t(limit.kind === "daily" ? "limitDaily" : "limitWeekly", { left: formatSom(limit.left) });
+  const promo = m.match(/promo_(not_found|inactive|expired|used_up|already_used)/);
+  if (promo) return t(`promo_${promo[1]}` as TKey);
+  if (m.includes("BLOCKED")) return t("blockedTitle");
   if (m.includes("insufficient")) return t("insufficient");
   if (m.includes("bk_rejected")) return t("bkRejected");
   if (m.includes("invalid_amount")) return t("invalidAmount", vars);

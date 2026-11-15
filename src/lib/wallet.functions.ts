@@ -28,6 +28,17 @@ import { VIDEO_SLOTS } from "./videos";
 import { ensureMigrations } from "./server/migrations.server";
 import { resolveBotUsername } from "./server/bot-username.server";
 import { cached } from "./server/memo.server";
+import {
+  accountSuspicion,
+  assertWithdrawLimit,
+  cardSuspicion,
+  cardWithdrawUsage,
+  checkPromo,
+  claimPromo,
+  recordPromo,
+  releasePromo,
+  withdrawLimits,
+} from "./server/safety.server";
 
 const initSchema = z.object({ initData: z.string().max(8192) });
 const selfieSchema = z.string().max(300);
@@ -52,7 +63,12 @@ export const walletBootstrap = createServerFn({ method: "POST" })
         sql<{ slot: string; storage_path: string | null }[]>`select slot, storage_path from public.videos`.then((r) => [...r]),
       ),
     ]);
-    const [refs, botUsername] = await Promise.all([countReferrals(user.id), resolveBotUsername(s)]);
+    const limits = withdrawLimits(s);
+    const [refs, botUsername, usage] = await Promise.all([
+      countReferrals(user.id),
+      resolveBotUsername(s),
+      limits.daily > 0 || limits.weekly > 0 ? cardWithdrawUsage(user.id) : Promise.resolve({ today: 0, week: 0 }),
+    ]);
     const logoMap = await signedUrls(
       "media",
       bks.map((b) => b.logo_url ?? "").filter(Boolean),
@@ -92,7 +108,10 @@ export const walletBootstrap = createServerFn({ method: "POST" })
         max_topup: num(s.max_topup, 10000000),
         min_card_withdraw: num(s.min_card_withdraw, 10000),
         max_card_withdraw: num(s.max_card_withdraw, 10000000),
+        daily_withdraw_limit: limits.daily,
+        weekly_withdraw_limit: limits.weekly,
       },
+      withdrawUsage: usage,
       bookmakers: bks.map((b) => ({
         id: b.id,
         name: b.name,
@@ -127,6 +146,14 @@ export const walletReferrals = createServerFn({ method: "POST" })
     const { user } = await auth(data.initData);
     const refs = await listReferrals(user.id);
     return refs.map((r) => ({ id: r.id, name: r.first_name ?? "", username: r.username, created_at: r.created_at }));
+  });
+
+export const walletCheckPromo = createServerFn({ method: "POST" })
+  .inputValidator((d) => initSchema.extend({ code: z.string().trim().min(1).max(40) }).parse(d))
+  .handler(async ({ data }) => {
+    const { user } = await auth(data.initData);
+    await ensureMigrations();
+    return checkPromo(data.code, user.id);
   });
 
 export const walletSetLang = createServerFn({ method: "POST" })
@@ -174,6 +201,7 @@ async function finishAuto(tx: TxRow, bkName: string, r: CashdeskResult, withdraw
   }
   if (r.kind === "rejected") {
     await sql`select 1 from reject_transaction(${tx.id}, ${`${bkName}: ${r.message}`.slice(0, 300)})`;
+    await releasePromo(tx.id);
     throw new Error(`bk_rejected: ${r.message}`);
   }
   const rows = await sql<TxRow[]>`
@@ -186,7 +214,12 @@ async function finishAuto(tx: TxRow, bkName: string, r: CashdeskResult, withdraw
 export const walletBkDeposit = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     initSchema
-      .extend({ bookmakerId: z.string().max(40), accountId: accountSchema, amount: z.number().int().positive().max(1_000_000_000) })
+      .extend({
+        bookmakerId: z.string().max(40),
+        accountId: accountSchema,
+        amount: z.number().int().positive().max(1_000_000_000),
+        promoCode: z.string().trim().max(40).optional(),
+      })
       .parse(d),
   )
   .handler(async ({ data }) => {
@@ -195,16 +228,26 @@ export const walletBkDeposit = createServerFn({ method: "POST" })
     const bk = await getActiveBookmaker(data.bookmakerId);
     if (!bk.deposit_enabled) throw new Error("not_available");
     if (data.amount < Number(bk.min_amount) || data.amount > Number(bk.max_amount)) throw new Error("invalid_amount");
+    if (data.promoCode) await ensureMigrations();
     const s = await getSettings();
-    const bonus = Math.floor((data.amount * num(s.deposit_bonus_percent, 0)) / 100);
+    const baseBonus = Math.floor((data.amount * num(s.deposit_bonus_percent, 0)) / 100);
     const fee = Math.floor((data.amount * Number(bk.deposit_fee_percent)) / 100);
     let tx: TxRow | undefined;
     try {
-      const rows = await sql<TxRow[]>`
-        select ${TX_COLS()} from create_debit_request(
-          ${user.id}, 'bk_deposit', ${data.amount}, ${bk.id}, ${data.accountId}, '', ${bonus}, ${fee}
-        )`;
-      tx = rows[0];
+      // Promo use + money hold in one database transaction: both happen or neither.
+      tx = await sql.begin(async (q) => {
+        const promo = data.promoCode ? await claimPromo(q, data.promoCode, user.id, data.amount) : null;
+        const rows = (await q`
+          select ${TX_COLS()} from create_debit_request(
+            ${user.id}, 'bk_deposit', ${data.amount}, ${bk.id}, ${data.accountId}, '', ${baseBonus + (promo?.bonus ?? 0)}, ${fee}
+          )`) as unknown as TxRow[];
+        const row = rows[0];
+        if (row && promo) {
+          await q`update public.transactions set promo_code = ${promo.code} where id = ${row.id}`;
+          await recordPromo(q, promo.code, user.id, row.id, promo.bonus);
+        }
+        return row;
+      });
     } catch (e) {
       friendlyError(e);
     }
@@ -236,13 +279,20 @@ export const walletBkWithdraw = createServerFn({ method: "POST" })
     await ensureMigrations();
     const bk = await getActiveBookmaker(data.bookmakerId);
     if (!bk.withdraw_enabled) throw new Error("not_available");
+    const s = await getSettings();
+    const flag = await accountSuspicion(user.id, bk.id, data.accountId, s);
     const rows = await sql<TxRow[]>`
-      insert into public.transactions (user_id, type, bookmaker_id, account_id, withdraw_code, amount, selfie_path)
-      values (${user.id}, 'bk_withdraw', ${bk.id}, ${data.accountId}, ${data.code}, 0, ${data.selfiePath})
+      insert into public.transactions (user_id, type, bookmaker_id, account_id, withdraw_code, amount, selfie_path, flag)
+      values (${user.id}, 'bk_withdraw', ${bk.id}, ${data.accountId}, ${data.code}, 0, ${data.selfiePath}, ${flag})
       returning ${TX_COLS()}`;
     const tx = rows[0];
     if (!tx) throw new Error("request_failed");
     try {
+      // A suspicious request never pays out automatically: an admin checks and confirms it.
+      if (flag) {
+        inBackground("alert", () => notifyAdminsNewRequest({ ...tx, flag }));
+        return { ok: true, number: tx.number, auto: "manual", amount: 0 } satisfies AutoOutcome;
+      }
       const creds = await loadCashdeskCreds(bk.id);
       if (creds) {
         const r = await cashdeskPayout(creds, data.accountId, data.code);
@@ -310,6 +360,8 @@ export const walletCardWithdraw = createServerFn({ method: "POST" })
     const s = await getSettings();
     if (data.amount < num(s.min_card_withdraw, 10000) || data.amount > num(s.max_card_withdraw, 10000000))
       throw new Error("invalid_amount");
+    await assertWithdrawLimit(user.id, data.amount, s);
+    const flag = await cardSuspicion(user.id, data.cardNumber, s);
     let tx: TxRow | undefined;
     try {
       const rows = await sql<TxRow[]>`
@@ -321,10 +373,10 @@ export const walletCardWithdraw = createServerFn({ method: "POST" })
       friendlyError(e);
     }
     if (!tx) throw new Error("request_failed");
-    await sql`update public.transactions set selfie_path = ${data.selfiePath} where id = ${tx.id}`;
+    await sql`update public.transactions set selfie_path = ${data.selfiePath}, flag = ${flag} where id = ${tx.id}`;
     // Request → bot (admins) first, then the selfie → channel; both after the wallet gets its answer.
     inBackground("alert+selfie", async () => {
-      await notifyAdminsNewRequest(tx);
+      await notifyAdminsNewRequest({ ...tx, flag });
       await notifyWithdrawSelfie(tx.id);
     });
     return { ok: true, number: tx.number };

@@ -5,6 +5,7 @@ import { getSettings, num, type Settings } from "./settings.server";
 import { notifyUserStatus } from "./notify.server";
 import { TX_COLS, type TxRow } from "./tx.server";
 import { isAdminId } from "./admins";
+import { releasePromo } from "./safety.server";
 
 export async function approveRequest(id: string, amount = 0, note = ""): Promise<TxRow> {
   const t = await maybeOne(
@@ -33,6 +34,7 @@ export async function rejectRequest(id: string, note = ""): Promise<TxRow> {
   const rows = await sql<TxRow[]>`select ${TX_COLS()} from reject_transaction(${id}, ${note || null})`;
   const done = rows[0];
   if (!done) throw new Error("not_found");
+  await releasePromo(id);
   await notifyUserStatus(done);
   return done;
 }
@@ -41,4 +43,16 @@ export async function rejectRequest(id: string, note = ""): Promise<TxRow> {
 export async function isTelegramAdmin(id: number, s?: Settings): Promise<boolean> {
   const settings = s ?? (await getSettings());
   return isAdminId(id, settings.admin_chat_id, process.env["ADMIN_TELEGRAM_IDS"] ?? "");
+}
+
+/** Why a request was flagged as suspicious (null when it wasn't). */
+export async function requestFlag(id: string): Promise<string | null> {
+  const r = await maybeOne(sql<{ flag: string | null }[]>`select to_jsonb(t) ->> 'flag' as flag from public.transactions t where id = ${id}`);
+  return r?.flag ?? null;
+}
+
+/** Blocks (or unblocks) a user: the bot and the wallet refuse them from then on. */
+export async function setUserBlocked(userId: number, blocked: boolean) {
+  const rows = await sql<{ id: number }[]>`update public.tg_users set is_blocked = ${blocked} where id = ${userId} returning id::float8 as id`;
+  if (!rows[0]) throw new Error("user_not_found");
 }

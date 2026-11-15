@@ -34,7 +34,7 @@ use the editor.
 - Railway uses its own database set up from `railway/setup.sql`; regenerate that file from `drizzle/migrations/*.sql` (plus storage bucket inserts) whenever a migration is added — because Lovable Cloud's service key is not available outside Lovable.
 - All database access goes through `src/lib/server/db.server.ts` after verifying the caller (Telegram initData or admin session); tables have RLS on with no public policies — so the database is never reachable from the browser.
 - Telegram calls use TELEGRAM_BOT_TOKEN directly when set, else the Lovable connector gateway — so the same code runs on Railway and in the preview.
-- After each change, push to GitHub `umidjonalimardonov010-coder/laughing-winner` main with `python3 scripts/push-to-github.py "msg"` (Lovable GitHub connector); Railway auto-deploys from that branch — because Lovable Git sync cannot push to that existing repo.
+- Code reaches GitHub through Lovable Git sync (its own new repo — point Railway at it); `scripts/push-to-github.py` (old `laughing-winner` repo) works only when the Lovable GitHub connector is linked to this project — because Git sync cannot attach to an existing repo.
 - Browser uploads use the server-made signed URL (`src/lib/upload.ts`), never the browser storage client — so uploads hit the same storage as the server on Railway.
 - Bookmaker cashdesk automation lives in `src/lib/server/cashdesk.server.ts` (credentials from the admin panel's app_settings keys `<prefix>_cashdesk_id/...`, falling back to `<PREFIX>_CASHDESK_ID/_CASHIER_PASS/_HASH` env vars; always load them via `loadCashdeskCreds`; secrets are never returned to the browser); the wallet approves on a clear success, refunds on a clear refusal and leaves the request pending for an admin on any unclear answer — because money may already have moved.
 - One-time data changes go in `src/lib/server/migrations.server.ts` (recorded in `app_migrations`, run lazily from bootstrap/bot/admin) — because Railway has no migration runner.
@@ -45,3 +45,8 @@ use the editor.
 
 - Withdrawal alerts are split: the request (with ✅/❌) goes to admins in the bot, the selfie only to `selfie_channel_id`; Telegram alerts from server functions run via `inBackground()` — so the wallet replies instantly and the two never mix.
 - Selfie auto-shot uses MediaPipe face detection loaded lazily in the browser (wasm from jsdelivr, model in public/models); the rule lives in `src/lib/face-check.ts` — so it stays testable and the manual shutter always works if loading fails.
+- Money safety rules (card-withdraw limits, suspicious card/BK account, promo validity) are pure functions in `src/lib/money-rules.ts`; database reads for them live in `src/lib/server/safety.server.ts` — so wallet, bot and admin enforce one tested rule set.
+- A flagged request (`transactions.flag`) never pays out automatically; Telegram ✅ asks a second time (`adm:ok` → `adm:ok2`) and the panel asks `confirm()` — because flagged money must be checked by a person.
+- Promo use is claimed inside the same `sql.begin` as `create_debit_request` and released on reject — so a failed or refused deposit never eats a promo use.
+- The bot edits the tapped message in place (`editInPlace`) and never deletes messages; the bottom keyboard is sent only on /start, /menu, phone and language steps — because re-sent keyboards and deleted messages make the chat blink.
+- Bot auto-replies come from `public.auto_replies` (admin page "Avto-javoblar"), cached 30 s and cleared on save.

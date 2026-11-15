@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
   ArrowLeft,
@@ -43,12 +43,14 @@ export function Home({
   onProfile,
   onVideos,
   onHelp,
+  onReferrals,
 }: {
   onTopup: () => void;
   onWithdraw: () => void;
   onProfile: () => void;
   onVideos: () => void;
   onHelp: () => void;
+  onReferrals: () => void;
 }) {
   const { boot, t, haptic } = useWallet();
   const { user, settings } = boot;
@@ -109,14 +111,24 @@ export function Home({
       </Glass>
 
       <h2 className="pt-2 text-lg font-semibold">{t("referralProgram")}</h2>
-      <Glass className="flex items-center gap-4 p-5">
+      <Glass onClick={onReferrals} className="flex items-center gap-4 p-5">
         <IconTile>
           <Gift className="size-6" />
         </IconTile>
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="text-lg font-semibold">{t("inviteFriends")}</div>
           <div className="text-sm text-muted-foreground">{t("inviteSub", { p: settings.referral_percent })}</div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-full bg-secondary px-2.5 py-1">
+              <Users className="mr-1 inline size-3.5" />
+              {user.referrals}
+            </span>
+            <span className="tabular rounded-full bg-primary/15 px-2.5 py-1 text-primary">
+              +{formatSom(user.referral_earned)} {t("som")}
+            </span>
+          </div>
         </div>
+        <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
       </Glass>
       <div className="flex gap-3">
         <div className="glass flex h-14 min-w-0 flex-1 items-center gap-2 rounded-2xl px-4 text-sm">
@@ -206,6 +218,9 @@ export function History() {
   const q = useQuery({
     queryKey: ["wallet-history", boot.user.id],
     queryFn: () => walletHistory({ data: { initData } }),
+    // Coming back to this tab shows the saved list at once and refreshes it quietly.
+    staleTime: 20_000,
+    placeholderData: keepPreviousData,
   });
   const bkName = (id: string | null) => boot.bookmakers.find((b) => b.id === id)?.name ?? id ?? "";
   const rows = (q.data ?? []).filter((r) => filter === "all" || txDirection(r.type as TxType, r.amount) === filter);
@@ -261,6 +276,11 @@ export function History() {
                   <div className="text-xs text-muted-foreground">
                     #{r.number} · {formatDateTime(r.created_at)}
                   </div>
+                  {r.status === "rejected" && r.admin_note && (
+                    <div className="mt-1 line-clamp-2 text-xs text-destructive">
+                      {t("reason")}: {r.admin_note}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className={cn("tabular font-semibold", dir === "in" ? "text-primary" : "text-gold")}>

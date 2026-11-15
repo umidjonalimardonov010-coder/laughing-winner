@@ -25,3 +25,18 @@
 - [x] Bot/wallet speed: alerts sent after the reply, webhook answers Telegram within 4 s, buttons stop spinning at once
 - [x] Selfie auto-shot when the full face is centred in the oval (face detection), manual button still works
 - [ ] Selfie channel live — owner taps /kanal → 'Botni kanalga qo'shish' (until then selfies aren't sent anywhere, still visible in admin panel)
+
+## 2026-11-15 request: money safety, users, admin, comfort
+- [x] Bot: nothing disappears/reappears — edit messages in place, stop re-sending the bottom keyboard; wallet screens don't blink
+- [x] Status alerts to the user on approve/reject (already existed) — friendlier text, 3 languages
+- [x] Daily / weekly card-withdraw limits (admin sets them in Sozlamalar)
+- [x] Suspicious requests: same card / same BK account across users or too often → flagged, no auto payout, admin double-confirm
+- [x] Promo codes: admin page + wallet input on BK deposit, extra bonus %
+- [x] Referral: link, share, count and earned visible in wallet
+- [x] Wallet history: show reject reason
+- [x] Admin stats: requests per day, top active users
+- [x] Block user in one tap (Telegram alert + requests page; users page already had it)
+- [x] Bot auto-replies: admin-managed Q&A, "❓ Savol-javob" button + keyword answers
+- [x] Bot gets English (wallet already had it)
+- [ ] Another language (e.g. Uzbek Cyrillic, Kazakh, Tajik) — waiting for the owner to choose
+- [x] Dark mode: wallet is already dark — tell user

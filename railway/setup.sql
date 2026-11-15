@@ -209,3 +209,50 @@ END $$;
 
 -- Pul chiqarishdagi yuz surati (selfi)
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS selfie_path text;
+
+-- Xavfsizlik belgisi, promo-kod, promo-kodlar va bot avto-javoblari
+-- (ilova ham birinchi ishga tushganda o'zi yaratadi; bu yerda qo'lda o'rnatish uchun)
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS flag text;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS promo_code text;
+CREATE INDEX IF NOT EXISTS transactions_card_idx ON public.transactions(card_number) WHERE card_number IS NOT NULL AND card_number <> '';
+CREATE INDEX IF NOT EXISTS transactions_account_idx ON public.transactions(bookmaker_id, account_id) WHERE account_id IS NOT NULL AND account_id <> '';
+
+CREATE TABLE IF NOT EXISTS public.promo_codes (
+  code text PRIMARY KEY,
+  bonus_percent numeric(6,2) NOT NULL DEFAULT 0,
+  max_uses int NOT NULL DEFAULT 0,
+  used_count int NOT NULL DEFAULT 0,
+  per_user int NOT NULL DEFAULT 1,
+  expires_at timestamptz,
+  is_active boolean NOT NULL DEFAULT true,
+  note text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.promo_redemptions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code text NOT NULL REFERENCES public.promo_codes(code) ON DELETE CASCADE,
+  user_id bigint NOT NULL REFERENCES public.tg_users(id) ON DELETE CASCADE,
+  tx_id uuid,
+  bonus bigint NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS promo_redemptions_user_idx ON public.promo_redemptions(code, user_id);
+CREATE TABLE IF NOT EXISTS public.auto_replies (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  keywords text NOT NULL DEFAULT '',
+  question_uz text NOT NULL DEFAULT '',
+  answer_uz text NOT NULL DEFAULT '',
+  question_ru text NOT NULL DEFAULT '',
+  answer_ru text NOT NULL DEFAULT '',
+  question_en text NOT NULL DEFAULT '',
+  answer_en text NOT NULL DEFAULT '',
+  sort_order int NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.promo_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.promo_redemptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.auto_replies ENABLE ROW LEVEL SECURITY;
+INSERT INTO public.app_settings (key, value) VALUES
+  ('daily_withdraw_limit', '0'), ('weekly_withdraw_limit', '0'), ('suspicious_repeat_count', '3')
+ON CONFLICT (key) DO NOTHING;

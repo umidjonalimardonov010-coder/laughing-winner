@@ -40,6 +40,29 @@ const GROUPS: { title: string; fields: { key: string; label: string; hint?: stri
     ],
   },
   {
+    title: "Xavfsizlik va limitlar",
+    fields: [
+      {
+        key: "daily_withdraw_limit",
+        label: "Kunlik yechish limiti, bir kishiga (so'm)",
+        hint: "Bir foydalanuvchi bir kunda kartaga shundan ko'p yecha olmaydi. 0 — limitsiz. Kun Toshkent vaqti bilan 00:00 da yangilanadi.",
+        placeholder: "0",
+      },
+      {
+        key: "weekly_withdraw_limit",
+        label: "Haftalik yechish limiti, bir kishiga (so'm)",
+        hint: "Oxirgi 7 kun ichida kartaga yechish jami. 0 — limitsiz.",
+        placeholder: "0",
+      },
+      {
+        key: "suspicious_repeat_count",
+        label: "Shubhali so'rov: 24 soatda bir xil karta/BK hisob necha marta",
+        hint: "Shuncha marta (yoki karta/BK hisob boshqa odamda ham ishlatilgan bo'lsa) so'rov ⚠️ shubhali deb belgilanadi: avto-to'lov bo'lmaydi, admin ikki bosqichda tasdiqlaydi. 0 — faqat boshqa odam tekshiruvi.",
+        placeholder: "3",
+      },
+    ],
+  },
+  {
     title: "Bonuslar",
     fields: [
       { key: "deposit_bonus_percent", label: "Bukmekerga to'ldirish bonusi, %", hint: "Admin BK hisobiga summa + bonusni tushiradi" },

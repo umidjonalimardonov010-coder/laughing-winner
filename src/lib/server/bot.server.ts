@@ -13,16 +13,22 @@ import { signedUrl } from "./media.server";
 import { resolveBotUsername } from "./bot-username.server";
 import { referralLink, shareLink } from "@/lib/referral";
 import { formatDateTime, formatSom, maskCard } from "@/lib/format";
+import { matchReply, replyText, type AutoReply } from "@/lib/auto-reply";
+import { cached } from "./memo.server";
+import { adminKeyboard } from "./notify.server";
+import { requestFlag, setUserBlocked } from "./requests.server";
 
-type L = "uz" | "ru";
+type L = "uz" | "ru" | "en";
+const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : v === "en" ? "en" : "uz");
 
-const MENU: Record<L, { deposit: string; withdraw: string; history: string; support: string; referral: string; rates: string }> = {
+const MENU: Record<L, { deposit: string; withdraw: string; history: string; support: string; referral: string; faq: string; rates: string }> = {
   uz: {
     deposit: "📥 Hisobni to'ldirish 📥",
     withdraw: "📤 Hisobdan yechish 📤",
     history: "To'lovlar tarixi ⏳",
     support: "Aloqa markazi 👨‍💻",
     referral: "Hamkorlik dasturi 👥",
+    faq: "Savol-javob ❓",
     rates: "Joriy kurslar 💸",
   },
   ru: {
@@ -31,7 +37,17 @@ const MENU: Record<L, { deposit: string; withdraw: string; history: string; supp
     history: "История платежей ⏳",
     support: "Центр поддержки 👨‍💻",
     referral: "Партнёрская программа 👥",
+    faq: "Вопросы и ответы ❓",
     rates: "Текущие курсы 💸",
+  },
+  en: {
+    deposit: "📥 Deposit 📥",
+    withdraw: "📤 Withdraw 📤",
+    history: "Payment history ⏳",
+    support: "Support center 👨‍💻",
+    referral: "Partner program 👥",
+    faq: "Questions & answers ❓",
+    rates: "Current rates 💸",
   },
 };
 
@@ -66,6 +82,12 @@ const TXT = {
     phoneBtn: "📱 Raqamni yuborish",
     notOwnContact: "⚠️ Bu boshqa odamning kontakti. Iltimos, pastdagi tugma orqali <b>o'zingizning</b> raqamingizni yuboring.",
     phoneSaved: (p: string) => `✅ Raqamingiz tasdiqlandi: <code>${p}</code>`,
+    langSaved: "✅ Til: O'zbekcha",
+    faqTitle: "❓ <b>Ko'p beriladigan savollar</b>\n\nSavolni tanlang:",
+    faqEmpty: "Hozircha savol-javoblar qo'shilmagan. Qo'llab-quvvatlashga yozing.",
+    faqBack: "⬅️ Savollarga qaytish",
+    faqMore: "❓ Boshqa savollar",
+    pickMenu: "<i>Pastdagi menyudan kerakli bo'limni tanlang 👇</i>",
     st: { pending: "⏳ kutilmoqda", approved: "✅ bajarildi", rejected: "❌ rad etildi" } as Record<string, string>,
     ty: {
       wallet_topup: "Hamyonni to'ldirish",
@@ -106,6 +128,12 @@ const TXT = {
     phoneBtn: "📱 Отправить номер",
     notOwnContact: "⚠️ Это контакт другого человека. Отправьте, пожалуйста, <b>свой</b> номер кнопкой ниже.",
     phoneSaved: (p: string) => `✅ Ваш номер подтверждён: <code>${p}</code>`,
+    langSaved: "✅ Язык: Русский",
+    faqTitle: "❓ <b>Частые вопросы</b>\n\nВыберите вопрос:",
+    faqEmpty: "Вопросы пока не добавлены. Напишите в поддержку.",
+    faqBack: "⬅️ К вопросам",
+    faqMore: "❓ Другие вопросы",
+    pickMenu: "<i>Выберите нужный раздел в меню ниже 👇</i>",
     st: { pending: "⏳ в ожидании", approved: "✅ выполнено", rejected: "❌ отклонено" } as Record<string, string>,
     ty: {
       wallet_topup: "Пополнение кошелька",
@@ -114,6 +142,51 @@ const TXT = {
       bk_withdraw: "Вывод из БК",
       referral_bonus: "Реферальный бонус",
       adjustment: "Корректировка",
+    } as Record<string, string>,
+  },
+  en: {
+    welcome: (b: string) =>
+      `🥇 <b><i>Welcome to ${escapeHtml(b)}!</i></b> <i>What matters most here: safety, convenience and speed. Start making your payments easily and reliably with us!</i>`,
+    mainMenu: "<i>Main menu. How can I help you?</i>",
+    depositIntro: "Please watch the video and\n\nchoose how to deposit:",
+    noBk: "No bookmakers available for deposits yet.",
+    withdraw: "ℹ️ Withdrawals are now made only through the Wallet.\n\nTap the button below to open it and withdraw.",
+    toWallet: "💳 Open Wallet",
+    historyTitle: "Transaction history:",
+    historyEmpty: "You have no transactions yet",
+    support: "To contact our team, please tap the button below.",
+    supportBtn: "Contact support",
+    supportMissing: "Support is not set up yet.",
+    backMenu: "Back to main menu",
+    referral: (bal: number, link: string, p: string, earned: number) =>
+      `Balance: ${formatSom(bal)} UZS\n\nYour referral link:\n${link}\n\nInvite friends and get ${p}% of each of their deposits!\n\n🎁 Referral bonus earned: ${formatSom(earned)} UZS\n\nℹ️ Withdrawals are available only in the Mini App.`,
+    myRefs: "My referrals",
+    shareBtn: "📤 Send to friends",
+    shareText: "Kassa 24/7 — fast bookmaker deposits and withdrawals. Join with this link:",
+    refsEmpty: "You have no referrals yet.",
+    refsTitle: (n: number) => `👥 Your referrals: ${n}`,
+    ratesDeposit: "📊 Deposit rates:",
+    ratesWithdraw: "📊 Withdrawal rates:",
+    blocked: "⛔ Your account is blocked. Please contact support.",
+    askPhone:
+      "🔐 <b>Verify your account</b>\n\nFor safety we need your phone number. Tap <b>«📱 Share number»</b> below.\n\n<i>The menu opens only after you share it. Only your own number is accepted.</i>",
+    phoneBtn: "📱 Share number",
+    notOwnContact: "⚠️ That is someone else's contact. Please share <b>your own</b> number with the button below.",
+    phoneSaved: (p: string) => `✅ Your number is verified: <code>${p}</code>`,
+    langSaved: "✅ Language: English",
+    faqTitle: "❓ <b>Frequently asked questions</b>\n\nChoose a question:",
+    faqEmpty: "No questions added yet. Please write to support.",
+    faqBack: "⬅️ Back to questions",
+    faqMore: "❓ Other questions",
+    pickMenu: "<i>Choose a section in the menu below 👇</i>",
+    st: { pending: "⏳ pending", approved: "✅ completed", rejected: "❌ rejected" } as Record<string, string>,
+    ty: {
+      wallet_topup: "Wallet top-up",
+      card_withdraw: "Card withdrawal",
+      bk_deposit: "Bookmaker deposit",
+      bk_withdraw: "Bookmaker withdrawal",
+      referral_bonus: "Referral bonus",
+      adjustment: "Balance adjustment",
     } as Record<string, string>,
   },
 };
@@ -126,7 +199,7 @@ function mainKeyboard(l: L, admin = false) {
     keyboard: [
       [{ text: m.deposit }, { text: m.withdraw }],
       [{ text: m.history }, { text: m.support }],
-      [{ text: m.referral }],
+      [{ text: m.referral }, { text: m.faq }],
       ...(admin ? [[{ text: ADMIN_BUTTON }]] : []),
     ],
     resize_keyboard: true,
@@ -135,7 +208,7 @@ function mainKeyboard(l: L, admin = false) {
 }
 
 function matchMenu(text: string): keyof (typeof MENU)["uz"] | null {
-  for (const l of ["uz", "ru"] as L[]) {
+  for (const l of ["uz", "ru", "en"] as L[]) {
     for (const [k, v] of Object.entries(MENU[l])) if (v === text) return k as keyof (typeof MENU)["uz"];
   }
   return null;
@@ -291,39 +364,131 @@ async function setCardFromChat(chatId: number, text: string) {
 
 const TX_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ✅ / ❌ under a new-request alert.
+// Buttons under a new-request alert:
+// ✅ ok (a suspicious request asks "are you sure?" first → ok2), ❌ no, 🚫 block / unblock the user.
 async function handleAdminDecision(cq: Update, s: Settings) {
   const [, act, id] = String(cq.data).split(":");
   const answer = (text: string, alert = false) =>
     tg("answerCallbackQuery", { callback_query_id: cq.id, text, show_alert: alert }).catch(() => undefined);
+  const chatId = cq.message?.chat?.id;
+  const messageId = cq.message?.message_id;
+  const setButtons = (inline_keyboard: unknown[][]) =>
+    chatId && messageId
+      ? tg("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard } }).catch(() => undefined)
+      : Promise.resolve(undefined);
   if (!(await isTelegramAdmin(cq.from.id, s))) return answer("⛔ Ruxsat yo'q", true);
-  if (!id || !TX_ID.test(id) || (act !== "ok" && act !== "no")) return answer("Noto'g'ri tugma", true);
+
+  if (act === "block" || act === "unblock") {
+    const userId = Number(id);
+    if (!Number.isSafeInteger(userId) || userId <= 0) return answer("Noto'g'ri tugma", true);
+    try {
+      await setUserBlocked(userId, act === "block");
+    } catch {
+      return answer("Foydalanuvchi topilmadi", true);
+    }
+    // Swap only this button; the rest of the alert stays as it was.
+    const rows: { text: string; callback_data?: string }[][] = cq.message?.reply_markup?.inline_keyboard ?? [];
+    await setButtons(
+      rows.map((row) =>
+        row.map((b) =>
+          b.callback_data === `adm:${act}:${userId}`
+            ? act === "block"
+              ? { text: "✅ Blokdan chiqarish", callback_data: `adm:unblock:${userId}` }
+              : { text: "🚫 Foydalanuvchini bloklash", callback_data: `adm:block:${userId}` }
+            : b,
+        ),
+      ),
+    );
+    return answer(act === "block" ? `🚫 ${userId} bloklandi — bot va hamyon unga yopiq` : `✅ ${userId} blokdan chiqarildi`, true);
+  }
+
+  if (!id || !TX_ID.test(id) || !["ok", "ok2", "no", "back"].includes(act ?? "")) return answer("Noto'g'ri tugma", true);
+
+  if (act === "back") {
+    const tx = await maybeOne(sql<{ user_id: number; status: string; type: string; amount: number }[]>`
+      select user_id::float8 as user_id, status, type, amount::float8 as amount from public.transactions where id = ${id}`);
+    if (tx) await setButtons(adminKeyboard({ id, ...tx }, chatId ?? 0, publicBase(s)));
+    return answer("↩️");
+  }
+  // Suspicious request: the first ✅ only asks for a second, deliberate confirmation.
+  if (act === "ok") {
+    const flag = await requestFlag(id);
+    if (flag) {
+      await setButtons([
+        [{ text: "⚠️ Ha, tekshirdim — tasdiqlayman", callback_data: `adm:ok2:${id}` }],
+        [{ text: "↩️ Orqaga", callback_data: `adm:back:${id}` }],
+      ]);
+      return answer(`⚠️ Shubhali: ${flag}`.slice(0, 190), true);
+    }
+  }
   try {
-    const done = act === "ok" ? await approveRequest(id) : await rejectRequest(id);
-    const label = act === "ok" ? `✅ #${done.number} tasdiqlandi` : `❌ #${done.number} rad etildi`;
+    const done = act === "no" ? await rejectRequest(id) : await approveRequest(id);
+    const label = act === "no" ? `❌ #${done.number} rad etildi` : `✅ #${done.number} tasdiqlandi`;
     await answer(label);
-    if (cq.message?.message_id)
-      await tg("editMessageReplyMarkup", {
-        chat_id: cq.message.chat.id,
-        message_id: cq.message.message_id,
-        reply_markup: { inline_keyboard: [[{ text: label, callback_data: "noop" }]] },
-      }).catch(() => undefined);
+    const rows: { text: string; callback_data?: string }[][] = cq.message?.reply_markup?.inline_keyboard ?? [];
+    const blockRow = rows.find((r) => r.some((b) => b.callback_data?.startsWith("adm:block:") || b.callback_data?.startsWith("adm:unblock:")));
+    await setButtons([[{ text: label, callback_data: "noop" }], ...(blockRow ? [blockRow] : [])]);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("already_processed")) return answer("Bu so'rov allaqachon ko'rib chiqilgan", true);
     if (msg.includes("insufficient")) return answer("Mijoz balansida pul yetarli emas", true);
+    if (msg.includes("amount_required")) return answer("Bu so'rovda summani admin panelda kiriting", true);
     console.error("admin decision failed", e);
     return answer(`Xatolik: ${msg.slice(0, 150)}`, true);
   }
 }
 
+// ---------- Questions & answers (admin panel → Avto-javoblar) ----------
+function loadReplies(): Promise<AutoReply[]> {
+  return cached("auto-replies", 30_000, async () => {
+    const rows = await sql<AutoReply[]>`
+      select id::text as id, keywords, question_uz, answer_uz, question_ru, answer_ru, question_en, answer_en,
+        sort_order, is_active
+      from public.auto_replies where is_active order by sort_order, created_at`;
+    return [...rows];
+  });
+}
+
+function faqList(l: L, replies: AutoReply[]) {
+  const t = TXT[l];
+  if (!replies.length) return { text: t.faqEmpty, markup: { inline_keyboard: [] as unknown[][] } };
+  return {
+    text: t.faqTitle,
+    markup: {
+      inline_keyboard: replies.slice(0, 30).map((r) => [{ text: replyText(r, l).q.slice(0, 60), callback_data: `faq:${r.id}` }]),
+    },
+  };
+}
+
+/** Changes the message the button belongs to instead of sending a new one — nothing jumps or blinks. */
+async function editInPlace(cq: Update, text: string, markup: unknown) {
+  const chatId = cq.message?.chat?.id;
+  const messageId = cq.message?.message_id;
+  const isText = typeof cq.message?.text === "string";
+  if (chatId && messageId) {
+    try {
+      if (isText) await tg("editMessageText", { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML", reply_markup: markup });
+      else await tg("editMessageCaption", { chat_id: chatId, message_id: messageId, caption: text, parse_mode: "HTML", reply_markup: markup });
+      return;
+    } catch (e) {
+      // "message is not modified" means it already shows this — nothing to do.
+      if (String(e).includes("not modified")) return;
+    }
+  }
+  await tg("sendMessage", { chat_id: chatId ?? cq.from.id, text, parse_mode: "HTML", reply_markup: markup });
+}
+
 async function sendLanguagePicker(chatId: number) {
   await tg("sendMessage", {
     chat_id: chatId,
-    text: "<b><i>Выберите язык\n🇷🇺🇺🇿\nTilni tanlang</i></b>",
+    text: "<b><i>Tilni tanlang\nВыберите язык\nChoose a language</i></b>",
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: [[{ text: "Русский", callback_data: "lang:ru" }], [{ text: "O'zbek tili", callback_data: "lang:uz" }]],
+      inline_keyboard: [
+        [{ text: "🇺🇿 O'zbek tili", callback_data: "lang:uz" }],
+        [{ text: "🇷🇺 Русский", callback_data: "lang:ru" }],
+        [{ text: "🇬🇧 English", callback_data: "lang:en" }],
+      ],
     },
   });
 }
@@ -405,18 +570,43 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     const answered = tg("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => undefined);
     const { user } = await upsertTgUser(from);
     await answered;
+    if (user.is_blocked) {
+      await tg("sendMessage", { chat_id: chatId, text: TXT[langOf(user.lang)].blocked }).catch(() => undefined);
+      return;
+    }
     if (data.startsWith("lang:")) {
-      const l: L = data === "lang:ru" ? "ru" : "uz";
+      const l: L = langOf(data.slice(5));
       await sql`update public.tg_users set lang = ${l}, lang_chosen = true where id = ${user.id}`;
-      if (cq.message?.message_id)
-        await tg("deleteMessage", { chat_id: chatId, message_id: cq.message.message_id }).catch(() => undefined);
+      // The picker turns into "✅ Language: …" — it does not vanish.
+      await editInPlace(cq, TXT[l].langSaved, { inline_keyboard: [] });
       if (!user.phone) return sendPhoneRequest(chatId, l, base);
       await sendWelcome(chatId, l, s);
       return;
     }
-    const l: L = user.lang === "ru" ? "ru" : "uz";
+    const l: L = langOf(user.lang);
     if (!user.phone) return sendPhoneRequest(chatId, l, base);
-    if (data === "menu") return sendMainMenu(chatId, l, s);
+    if (data === "menu") {
+      // The bottom menu is always there; just close this message's buttons in place.
+      if (typeof cq.message?.text === "string") return editInPlace(cq, TXT[l].pickMenu, { inline_keyboard: [] });
+      if (cq.message?.message_id)
+        await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
+      return;
+    }
+    if (data === "faq:list") {
+      const f = faqList(l, await loadReplies());
+      return editInPlace(cq, f.text, f.markup);
+    }
+    if (data.startsWith("faq:")) {
+      const r = (await loadReplies()).find((x) => x.id === data.slice(4));
+      if (!r) {
+        const f = faqList(l, await loadReplies());
+        return editInPlace(cq, f.text, f.markup);
+      }
+      const qa = replyText(r, l);
+      return editInPlace(cq, `❓ <b>${escapeHtml(qa.q)}</b>\n\n${escapeHtml(qa.a)}`, {
+        inline_keyboard: [[{ text: TXT[l].faqBack, callback_data: "faq:list" }]],
+      });
+    }
     if (data === "refs") {
       const refs = await listReferrals(user.id);
       const text = refs.length
@@ -443,16 +633,16 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     const ref = arg && /^\d+$/.test(arg) ? Number(arg) : null;
     const { user } = await upsertTgUser(from, ref);
     if (user.is_blocked) {
-      await tg("sendMessage", { chat_id: chatId, text: TXT.uz.blocked });
+      await tg("sendMessage", { chat_id: chatId, text: TXT[langOf(user.lang)].blocked });
       return;
     }
     if (!user.lang_chosen) return sendLanguagePicker(chatId);
-    if (!user.phone) return sendPhoneRequest(chatId, user.lang === "ru" ? "ru" : "uz", base);
-    return sendWelcome(chatId, user.lang === "ru" ? "ru" : "uz", s);
+    if (!user.phone) return sendPhoneRequest(chatId, langOf(user.lang), base);
+    return sendWelcome(chatId, langOf(user.lang), s);
   }
 
   const { user } = await upsertTgUser(from);
-  const l: L = user.lang === "ru" ? "ru" : "uz";
+  const l: L = langOf(user.lang);
   const t = TXT[l];
   if (user.is_blocked) {
     await tg("sendMessage", { chat_id: chatId, text: t.blocked });
@@ -491,7 +681,29 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   if (text === "/menu") return sendMainMenu(chatId, l, s);
 
   const action = matchMenu(text);
-  if (!action) return sendMainMenu(chatId, l, s);
+  if (!action) {
+    // A typed question gets the matching ready answer; anything else points to the menu
+    // (without re-sending the bottom keyboard, so it doesn't jump).
+    const hit = text ? matchReply(text, await loadReplies().catch(() => [])) : null;
+    if (hit) {
+      const qa = replyText(hit, l);
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `💬 <b>${escapeHtml(qa.q)}</b>\n\n${escapeHtml(qa.a)}`,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [[{ text: t.faqMore, callback_data: "faq:list" }]] },
+      });
+      return;
+    }
+    await tg("sendMessage", { chat_id: chatId, text: t.pickMenu, parse_mode: "HTML" });
+    return;
+  }
+
+  if (action === "faq") {
+    const f = faqList(l, await loadReplies().catch(() => []));
+    await tg("sendMessage", { chat_id: chatId, text: f.text, parse_mode: "HTML", reply_markup: f.markup });
+    return;
+  }
 
   if (action === "deposit") {
     const bks = await sql<{ id: string; name: string }[]>`

@@ -14,6 +14,8 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminBookmakersRouteImport } from './routes/admin.bookmakers'
+import { Route as AdminPromosRouteImport } from './routes/admin.promos'
+import { Route as AdminRepliesRouteImport } from './routes/admin.replies'
 import { Route as AdminRequestsRouteImport } from './routes/admin.requests'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
@@ -45,6 +47,16 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const AdminBookmakersRoute = AdminBookmakersRouteImport.update({
   id: '/bookmakers',
   path: '/bookmakers',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminPromosRoute = AdminPromosRouteImport.update({
+  id: '/promos',
+  path: '/promos',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminRepliesRoute = AdminRepliesRouteImport.update({
+  id: '/replies',
+  path: '/replies',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminRequestsRoute = AdminRequestsRouteImport.update({
@@ -89,6 +101,8 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/app': typeof AppRoute
   '/admin/bookmakers': typeof AdminBookmakersRoute
+  '/admin/promos': typeof AdminPromosRoute
+  '/admin/replies': typeof AdminRepliesRoute
   '/admin/requests': typeof AdminRequestsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -102,6 +116,8 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/app': typeof AppRoute
   '/admin/bookmakers': typeof AdminBookmakersRoute
+  '/admin/promos': typeof AdminPromosRoute
+  '/admin/replies': typeof AdminRepliesRoute
   '/admin/requests': typeof AdminRequestsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -117,6 +133,8 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/app': typeof AppRoute
   '/admin/bookmakers': typeof AdminBookmakersRoute
+  '/admin/promos': typeof AdminPromosRoute
+  '/admin/replies': typeof AdminRepliesRoute
   '/admin/requests': typeof AdminRequestsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
@@ -133,6 +151,8 @@ export interface FileRouteTypes {
     | '/admin'
     | '/app'
     | '/admin/bookmakers'
+    | '/admin/promos'
+    | '/admin/replies'
     | '/admin/requests'
     | '/admin/settings'
     | '/admin/users'
@@ -146,6 +166,8 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/admin/bookmakers'
+    | '/admin/promos'
+    | '/admin/replies'
     | '/admin/requests'
     | '/admin/settings'
     | '/admin/users'
@@ -160,6 +182,8 @@ export interface FileRouteTypes {
     | '/admin'
     | '/app'
     | '/admin/bookmakers'
+    | '/admin/promos'
+    | '/admin/replies'
     | '/admin/requests'
     | '/admin/settings'
     | '/admin/users'
@@ -216,6 +240,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminBookmakersRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/promos': {
+      id: '/admin/promos'
+      path: '/promos'
+      fullPath: '/admin/promos'
+      preLoaderRoute: typeof AdminPromosRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/replies': {
+      id: '/admin/replies'
+      path: '/replies'
+      fullPath: '/admin/replies'
+      preLoaderRoute: typeof AdminRepliesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/requests': {
       id: '/admin/requests'
       path: '/requests'
@@ -270,6 +308,8 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminBookmakersRoute: typeof AdminBookmakersRoute
+  AdminPromosRoute: typeof AdminPromosRoute
+  AdminRepliesRoute: typeof AdminRepliesRoute
   AdminRequestsRoute: typeof AdminRequestsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminUsersRoute: typeof AdminUsersRoute
@@ -279,6 +319,8 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminBookmakersRoute: AdminBookmakersRoute,
+  AdminPromosRoute: AdminPromosRoute,
+  AdminRepliesRoute: AdminRepliesRoute,
   AdminRequestsRoute: AdminRequestsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminUsersRoute: AdminUsersRoute,

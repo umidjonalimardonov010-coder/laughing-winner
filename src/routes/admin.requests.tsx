@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Check, Copy, ExternalLink, Loader2, Search, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, Copy, ExternalLink, Loader2, Search, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
-import { adminApproveRequest, adminListRequests, adminRejectRequest } from "@/lib/admin.functions";
+import { adminApproveRequest, adminListRequests, adminRejectRequest, adminSetBlocked } from "@/lib/admin.functions";
 import { formatDateTime, formatSom, groupCard } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { errMsg, PageTitle, Panel, StatusBadge, TYPE_LABEL } from "@/components/admin/shared";
@@ -128,12 +128,30 @@ function RequestCard({ r }: { r: Row }) {
   const qc = useQueryClient();
   const [amount, setAmount] = useState(r.type === "wallet_topup" ? String(r.amount) : "");
   const [note, setNote] = useState("");
-  const [busy, setBusy] = useState<"ok" | "no" | null>(null);
+  const [busy, setBusy] = useState<"ok" | "no" | "block" | null>(null);
   const user = r.tg_users as { id: number; username: string | null; first_name: string | null; balance: number } | null;
   const bk = r.bookmakers as { name: string } | null;
   const needsAmount = r.type === "bk_withdraw" || r.type === "wallet_topup";
 
+  const toggleBlock = async () => {
+    const block = !r.user_blocked;
+    if (block && !confirm(`${user?.first_name ?? r.user_id} ni bloklaysizmi? Bot va hamyon unga yopiladi.`)) return;
+    setBusy("block");
+    try {
+      await adminSetBlocked({ data: { userId: r.user_id, blocked: block } });
+      toast.success(block ? "Foydalanuvchi bloklandi" : "Blokdan chiqarildi");
+      await qc.invalidateQueries({ queryKey: ["admin-requests"] });
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const act = async (kind: "ok" | "no") => {
+    // Suspicious request: a separate, deliberate confirmation before money moves.
+    if (kind === "ok" && r.flag && !confirm(`⚠️ SHUBHALI SO'ROV #${r.number}\n\n${r.flag}\n\nTekshirdingizmi? Tasdiqlaysizmi?`)) return;
     setBusy(kind);
     try {
       if (kind === "ok") {
@@ -155,7 +173,16 @@ function RequestCard({ r }: { r: Row }) {
   };
 
   return (
-    <Panel className={cn("space-y-3", r.status === "pending" && "border-warning/40")}>
+    <Panel className={cn("space-y-3", r.status === "pending" && "border-warning/40", r.flag && r.status === "pending" && "border-destructive/60")}>
+      {r.flag && (
+        <div className="flex items-start gap-2 rounded-xl bg-destructive/15 px-3 py-2 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <div className="font-semibold">Shubhali so'rov — avto-to'lov to'xtatildi</div>
+            <div>{r.flag}</div>
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm text-muted-foreground">
@@ -168,9 +195,23 @@ function RequestCard({ r }: { r: Row }) {
         </div>
         <StatusBadge status={r.status} />
       </div>
-      <div className="text-sm">
-        👤 {user?.first_name ?? "—"} {user?.username ? `@${user.username}` : ""} · <span className="font-mono">{r.user_id}</span> · balans{" "}
-        <span className="tabular">{formatSom(user?.balance ?? 0)}</span>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span>
+          👤 {user?.first_name ?? "—"} {user?.username ? `@${user.username}` : ""} · <span className="font-mono">{r.user_id}</span> · balans{" "}
+          <span className="tabular">{formatSom(user?.balance ?? 0)}</span>
+        </span>
+        {r.user_blocked && <span className="rounded bg-destructive/15 px-1.5 text-xs text-destructive">bloklangan</span>}
+        <button
+          disabled={!!busy}
+          onClick={toggleBlock}
+          className={cn(
+            "ml-auto flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50",
+            r.user_blocked ? "bg-primary/15 text-primary" : "bg-destructive/15 text-destructive",
+          )}
+        >
+          {busy === "block" ? <Loader2 className="size-3.5 animate-spin" /> : r.user_blocked ? <ShieldCheck className="size-3.5" /> : <Ban className="size-3.5" />}
+          {r.user_blocked ? "Blokdan chiqarish" : "Bloklash"}
+        </button>
       </div>
       <div className="space-y-2 text-sm">
         {r.phone && <CopyVal label="Telefon" value={r.phone} />}
@@ -187,6 +228,7 @@ function RequestCard({ r }: { r: Row }) {
           <div className="rounded-lg bg-primary/10 px-3 py-2 text-primary">
             BK hisobiga tushiring: <b className="tabular">{formatSom(r.amount + r.bonus - r.fee)} so'm</b>
             {r.bonus ? ` (bonus +${formatSom(r.bonus)})` : ""}
+            {r.promo_code ? ` · promo ${r.promo_code}` : ""}
             {r.fee ? ` (komissiya −${formatSom(r.fee)})` : ""}
           </div>
         )}

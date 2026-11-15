@@ -19,6 +19,8 @@ type Tx = {
   card_number: string | null;
   admin_note: string | null;
   receipt_path?: string | null;
+  /** Why the request looks suspicious; such requests need a separate admin confirmation. */
+  flag?: string | null;
 };
 
 const TYPE_UZ: Record<string, string> = {
@@ -28,6 +30,14 @@ const TYPE_UZ: Record<string, string> = {
   bk_withdraw: "📤 Bukmekerdan chiqarish",
   referral_bonus: "🎁 Referal bonus",
   adjustment: "✏️ Balans tuzatish",
+};
+const TYPE_EN: Record<string, string> = {
+  wallet_topup: "💳 Wallet top-up",
+  card_withdraw: "🏧 Card withdrawal",
+  bk_deposit: "📥 Bookmaker deposit",
+  bk_withdraw: "📤 Bookmaker withdrawal",
+  referral_bonus: "🎁 Referral bonus",
+  adjustment: "✏️ Balance adjustment",
 };
 const TYPE_RU: Record<string, string> = {
   wallet_topup: "💳 Пополнение кошелька",
@@ -66,6 +76,31 @@ function personLines(u: { first_name: string | null; last_name?: string | null; 
   ];
 }
 
+/** Buttons under a request alert (also used to put them back after "↩️ Orqaga"). */
+export function adminKeyboard(
+  tx: { id: string; user_id: number; status?: string | null; type?: string; amount?: number },
+  chatId: number,
+  base: string,
+  needsAmount = tx.type === "bk_withdraw" && !tx.amount,
+): unknown[][] {
+  const keyboard: unknown[][] = [];
+  if ((tx.status ?? "pending") === "pending" && !needsAmount) {
+    keyboard.push([
+      { text: "✅ Tasdiqlash", callback_data: `adm:ok:${tx.id}` },
+      { text: "❌ Rad etish", callback_data: `adm:no:${tx.id}` },
+    ]);
+  }
+  keyboard.push([{ text: "🚫 Foydalanuvchini bloklash", callback_data: `adm:block:${tx.user_id}` }]);
+  const adminUrl = base ? `${base}/admin/requests` : null;
+  if (adminUrl) {
+    // Inside Telegram the panel opens already signed in (private chats only support web_app buttons).
+    keyboard.push([
+      chatId > 0 ? { text: "🛠 Admin panelda ochish", web_app: { url: adminUrl } } : { text: "🛠 Admin panelda ochish", url: adminUrl },
+    ]);
+  }
+  return keyboard;
+}
+
 // New request → message to every admin chat id from settings (in the bot). Selfies go to the channel separately.
 export async function notifyAdminsNewRequest(tx: Tx) {
   if (telegramMode() === "none") return;
@@ -79,6 +114,7 @@ export async function notifyAdminsNewRequest(tx: Tx) {
     );
     const isWithdraw = tx.type === "card_withdraw" || tx.type === "bk_withdraw";
     const lines = [
+      ...(tx.flag ? [`⚠️⚠️ <b>SHUBHALI SO'ROV</b> ⚠️⚠️`, `<i>${escapeHtml(tx.flag)}</i>`, "Avval tekshiring — tasdiqlash ikki bosqichli.", ""] : []),
       `${isWithdraw ? "📤" : "📥"} <b>YANGI SO'ROV #${tx.number}</b>`,
       `<i>${escapeHtml(TYPE_UZ[tx.type] ?? tx.type)}</i>`,
       LINE,
@@ -98,26 +134,11 @@ export async function notifyAdminsNewRequest(tx: Tx) {
     lines.push(LINE, `🕒 ${tashkentNow()}`);
     if (isWithdraw) lines.push(s.selfie_channel_id.trim() ? "🤳 Yuz surati — selfi kanalida" : "⚠️ Selfi kanali ulanmagan — /kanal");
     const base = publicBase(s);
-    const adminUrl = base ? `${base}/admin/requests` : null;
     const receipt = tx.receipt_path && base ? await signedUrl("receipts", tx.receipt_path, 60 * 60 * 24, base) : null;
     const text = lines.join("\n");
     await Promise.all(
       ids.map((chatId) => {
-        const keyboard: unknown[][] = [];
-        if ((tx.status ?? "pending") === "pending" && !needsAmount) {
-          keyboard.push([
-            { text: "✅ Tasdiqlash", callback_data: `adm:ok:${tx.id}` },
-            { text: "❌ Rad etish", callback_data: `adm:no:${tx.id}` },
-          ]);
-        }
-        if (adminUrl) {
-          // Inside Telegram the panel opens already signed in (private chats only support web_app buttons).
-          keyboard.push([
-            Number(chatId) > 0
-              ? { text: "🛠 Admin panelda ochish", web_app: { url: adminUrl } }
-              : { text: "🛠 Admin panelda ochish", url: adminUrl },
-          ]);
-        }
+        const keyboard = adminKeyboard(tx, Number(chatId), base, needsAmount);
         const markup = keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {};
         return sendWithReceipt(chatId, text, receipt, tx.receipt_path ?? "", markup).catch((e) =>
           console.error("notifyAdminsNewRequest send", chatId, e),
@@ -129,7 +150,31 @@ export async function notifyAdminsNewRequest(tx: Tx) {
   }
 }
 
-// Approved / rejected → message to the user.
+const STATUS_TEXT = {
+  uz: {
+    ok: (n: number) => `✅ <b>So'rovingiz tasdiqlandi!</b>\nSo'rov #${n} muvaffaqiyatli bajarildi.`,
+    no: (n: number) => `❌ <b>So'rovingiz rad etildi</b>\nSo'rov #${n}. Yechilgan pul hamyoningizga qaytarildi.`,
+    reason: "Sabab",
+    balance: "Hamyon balansi",
+    som: "so'm",
+  },
+  ru: {
+    ok: (n: number) => `✅ <b>Ваша заявка подтверждена!</b>\nЗаявка #${n} успешно выполнена.`,
+    no: (n: number) => `❌ <b>Ваша заявка отклонена</b>\nЗаявка #${n}. Списанные деньги вернулись в кошелёк.`,
+    reason: "Причина",
+    balance: "Баланс кошелька",
+    som: "сум",
+  },
+  en: {
+    ok: (n: number) => `✅ <b>Your request is approved!</b>\nRequest #${n} was completed successfully.`,
+    no: (n: number) => `❌ <b>Your request was rejected</b>\nRequest #${n}. Any money taken is back in your wallet.`,
+    reason: "Reason",
+    balance: "Wallet balance",
+    som: "UZS",
+  },
+};
+
+// Approved / rejected → message to the user in their language.
 export async function notifyUserStatus(tx: Tx) {
   if (telegramMode() === "none") return;
   try {
@@ -137,24 +182,16 @@ export async function notifyUserStatus(tx: Tx) {
       sql<{ lang: string; balance: number }[]>`
         select lang, balance::float8 as balance from public.tg_users where id = ${tx.user_id}`,
     );
-    const ru = u?.lang === "ru";
-    const title = (ru ? TYPE_RU : TYPE_UZ)[tx.type] ?? tx.type;
+    const l = u?.lang === "ru" ? "ru" : u?.lang === "en" ? "en" : "uz";
+    const T = STATUS_TEXT[l];
+    const title = (l === "ru" ? TYPE_RU : l === "en" ? TYPE_EN : TYPE_UZ)[tx.type] ?? tx.type;
     const ok = tx.status === "approved";
-    const lines = [
-      ok
-        ? ru
-          ? `✅ <b>Заявка #${tx.number} выполнена</b>`
-          : `✅ <b>So'rov #${tx.number} bajarildi</b>`
-        : ru
-          ? `❌ <b>Заявка #${tx.number} отклонена</b>`
-          : `❌ <b>So'rov #${tx.number} rad etildi</b>`,
-      title,
-    ];
+    const lines = [ok ? T.ok(tx.number) : T.no(tx.number), "", title];
     if (tx.bookmaker_id) lines.push(`🏢 ${escapeHtml(await bkName(tx.bookmaker_id))}`);
     if (tx.card_number) lines.push(`💳 ${maskCard(tx.card_number)}`);
-    if (tx.amount) lines.push(`💰 ${formatSom(tx.amount)} ${ru ? "сум" : "so'm"}`);
-    if (tx.admin_note) lines.push(`💬 ${escapeHtml(tx.admin_note)}`);
-    lines.push(`${ru ? "Баланс" : "Balans"}: ${formatSom(u?.balance ?? 0)} ${ru ? "сум" : "so'm"}`);
+    if (tx.amount) lines.push(`💰 ${formatSom(tx.amount)} ${T.som}`);
+    if (tx.admin_note) lines.push(`💬 ${ok ? "" : `${T.reason}: `}${escapeHtml(tx.admin_note)}`);
+    lines.push("", `👛 ${T.balance}: <b>${formatSom(u?.balance ?? 0)} ${T.som}</b>`);
     await tg("sendMessage", { chat_id: tx.user_id, text: lines.join("\n"), parse_mode: "HTML" });
   } catch (e) {
     console.error("notifyUserStatus", e);

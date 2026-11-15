@@ -3,6 +3,18 @@
 import { sql } from "./db.server";
 import { withOwnerAdmin } from "./admins";
 import { tg, telegramMode, webhookSecret } from "./telegram.server";
+import { FAQ } from "@/lib/i18n";
+
+// Keywords for the starter bot auto-replies (one per built-in FAQ entry, same order).
+const FAQ_KEYWORDS = [
+  "bot nima, nima uchun kerak, для чего, что это за бот, what is this bot",
+  "balansni to'ldir, hamyonni to'ldir, hamyon to'ldir, пополнить баланс, пополнить кошел, top up",
+  "pul yech, pulni yech, kartaga yech, вывести деньги, вывод на карту, withdraw money",
+  "bk to'ldir, bukmekerga, linebetga, пополнить букмекер, fund a bookmaker",
+  "bk dan yech, bukmekerdan, chiqarish kodi, 4 belgili kod, вывести из букмекер, withdraw from a bookmaker",
+  "qancha vaqt, necha daqiqa, qachon tushadi, сколько времени, когда придут, how long",
+  "muvaffaqiyatsiz, rad etildi, tushmadi, не прошла, отклонен, failed, rejected",
+];
 
 const STEPS: { id: string; run: () => Promise<unknown> }[] = [
   {
@@ -47,6 +59,66 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
         });
       } catch (e) {
         console.error("[migrations] webhook my_chat_member", e);
+      }
+    },
+  },
+  {
+    // Money safety (flags, limits), promo codes and bot auto-replies.
+    id: "2026-11-15-safety-promo-replies",
+    run: async () => {
+      await sql`alter table public.transactions add column if not exists flag text`;
+      await sql`alter table public.transactions add column if not exists promo_code text`;
+      await sql`create index if not exists transactions_card_idx on public.transactions(card_number) where card_number is not null and card_number <> ''`;
+      await sql`create index if not exists transactions_account_idx on public.transactions(bookmaker_id, account_id) where account_id is not null and account_id <> ''`;
+      await sql`create table if not exists public.promo_codes (
+        code text primary key,
+        bonus_percent numeric(6,2) not null default 0,
+        max_uses int not null default 0,
+        used_count int not null default 0,
+        per_user int not null default 1,
+        expires_at timestamptz,
+        is_active boolean not null default true,
+        note text not null default '',
+        created_at timestamptz not null default now()
+      )`;
+      await sql`create table if not exists public.promo_redemptions (
+        id uuid primary key default gen_random_uuid(),
+        code text not null references public.promo_codes(code) on delete cascade,
+        user_id bigint not null references public.tg_users(id) on delete cascade,
+        tx_id uuid,
+        bonus bigint not null default 0,
+        created_at timestamptz not null default now()
+      )`;
+      await sql`create index if not exists promo_redemptions_user_idx on public.promo_redemptions(code, user_id)`;
+      await sql`create table if not exists public.auto_replies (
+        id uuid primary key default gen_random_uuid(),
+        keywords text not null default '',
+        question_uz text not null default '',
+        answer_uz text not null default '',
+        question_ru text not null default '',
+        answer_ru text not null default '',
+        question_en text not null default '',
+        answer_en text not null default '',
+        sort_order int not null default 0,
+        is_active boolean not null default true,
+        created_at timestamptz not null default now()
+      )`;
+      // Same as every table here: RLS on, no public policies — only the server reaches them.
+      await sql`alter table public.promo_codes enable row level security`;
+      await sql`alter table public.promo_redemptions enable row level security`;
+      await sql`alter table public.auto_replies enable row level security`;
+      await sql`insert into public.app_settings (key, value) values
+        ('daily_withdraw_limit', '0'), ('weekly_withdraw_limit', '0'), ('suspicious_repeat_count', '3')
+        on conflict (key) do nothing`;
+      // Starter Q&A = the wallet's built-in FAQ, so the bot answers the same way from day one.
+      const existing = await sql<{ n: number }[]>`select count(*)::int as n from public.auto_replies`;
+      if (!existing[0]?.n) {
+        for (let i = 0; i < FAQ.uz.length; i++) {
+          await sql`insert into public.auto_replies
+            (keywords, question_uz, answer_uz, question_ru, answer_ru, question_en, answer_en, sort_order)
+            values (${FAQ_KEYWORDS[i] ?? ""}, ${FAQ.uz[i]?.q ?? ""}, ${FAQ.uz[i]?.a ?? ""}, ${FAQ.ru[i]?.q ?? ""},
+              ${FAQ.ru[i]?.a ?? ""}, ${FAQ.en[i]?.q ?? ""}, ${FAQ.en[i]?.a ?? ""}, ${i + 1})`;
+        }
       }
     },
   },

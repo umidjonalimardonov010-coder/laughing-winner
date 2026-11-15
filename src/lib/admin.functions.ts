@@ -15,7 +15,8 @@ import { getBotInfo, telegramMode, tg, webhookSecret } from "./server/telegram.s
 import { VIDEO_SLOT_IDS } from "./videos";
 import { verifyInitData } from "./server/initdata.server";
 import { parseAdminIds } from "./server/admins";
-import { approveRequest, isTelegramAdmin, rejectRequest } from "./server/requests.server";
+import { approveRequest, isTelegramAdmin, rejectRequest, setUserBlocked } from "./server/requests.server";
+import { normalizePromo } from "./money-rules";
 import { cashdeskBalance, cashdeskFindUser, cashdeskVerdict, serverPublicIp } from "./server/cashdesk.server";
 import { loadCashdeskCreds, loadCashdeskDraft, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
 
@@ -92,14 +93,20 @@ export const adminDashboard = createServerFn({ method: "POST" })
 
     const byType: Record<string, { count: number; sum: number }> = {};
     const byBk: Record<string, { deposit: number; withdraw: number }> = {};
-    const days: Record<string, { date: string; kirim: number; chiqim: number }> = {};
+    const days: Record<string, { date: string; kirim: number; chiqim: number; soni: number }> = {};
     for (let i = 0; i < data.days; i++) {
       const d = new Date(since);
       d.setDate(since.getDate() + i);
       const key = d.toISOString().slice(0, 10);
-      days[key] = { date: key, kirim: 0, chiqim: 0 };
+      days[key] = { date: key, kirim: 0, chiqim: 0, soni: 0 };
     }
+    let requestCount = 0;
     for (const t of txs) {
+      if (t.type !== "referral_bonus" && t.type !== "adjustment") {
+        requestCount++;
+        const created = days[t.created_at.slice(0, 10)];
+        if (created) created.soni++;
+      }
       if (t.status !== "approved") continue;
       const amt = Number(t.amount);
       const bt = (byType[t.type] ??= { count: 0, sum: 0 });
@@ -119,10 +126,29 @@ export const adminDashboard = createServerFn({ method: "POST" })
         if (t.type === "bk_withdraw") b.withdraw += amt;
       }
     }
-    const newUsers = await countOf(sql`select count(*)::float8 as n from public.tg_users where created_at >= ${sinceIso}`);
+    await ensureMigrations();
+    const [newUsers, flagged, blocked, topUsers] = await Promise.all([
+      countOf(sql`select count(*)::float8 as n from public.tg_users where created_at >= ${sinceIso}`),
+      countOf(sql`select count(*)::float8 as n from public.transactions t where status = 'pending' and (to_jsonb(t) ->> 'flag') is not null`),
+      countOf(sql`select count(*)::float8 as n from public.tg_users where is_blocked`),
+      // Most active people in the period: completed money requests, by total amount.
+      sql<{ user_id: number; first_name: string | null; username: string | null; phone: string | null; is_blocked: boolean; count: number; sum: number }[]>`
+        select t.user_id::float8 as user_id, u.first_name, u.username, u.phone, u.is_blocked,
+          count(*)::float8 as count, coalesce(sum(t.amount), 0)::float8 as sum
+        from public.transactions t join public.tg_users u on u.id = t.user_id
+        where t.created_at >= ${sinceIso} and t.status = 'approved'
+          and t.type in ('wallet_topup', 'card_withdraw', 'bk_deposit', 'bk_withdraw')
+        group by t.user_id, u.first_name, u.username, u.phone, u.is_blocked
+        order by sum desc
+        limit 10`,
+    ]);
     return {
       users,
       newUsers,
+      flagged,
+      blocked,
+      requestCount,
+      topUsers: [...topUsers],
       pending,
       totalBalance,
       byType,
@@ -176,9 +202,15 @@ export const adminListRequests = createServerFn({ method: "POST" })
         bk_name: string | null;
         phone: string | null;
         selfie_path: string | null;
+        flag: string | null;
+        promo_code: string | null;
+        user_blocked: boolean | null;
       })[]
     >`
       select ${TX_COLS()},
+        to_jsonb(t) ->> 'flag' as flag,
+        to_jsonb(t) ->> 'promo_code' as promo_code,
+        (select u.is_blocked from public.tg_users u where u.id = t.user_id) as user_blocked,
         (select u.phone from public.tg_users u where u.id = t.user_id) as phone,
         to_jsonb(t) ->> 'selfie_path' as selfie_path,
         (select u.username from public.tg_users u where u.id = t.user_id) as username,
@@ -276,7 +308,7 @@ export const adminSetBlocked = createServerFn({ method: "POST" })
   .inputValidator((d) => z.object({ userId: z.number().int(), blocked: z.boolean() }).parse(d))
   .handler(async ({ data }) => {
     await requireAdmin();
-    await sql`update public.tg_users set is_blocked = ${data.blocked} where id = ${data.userId}`;
+    await setUserBlocked(data.userId, data.blocked);
     return { ok: true };
   });
 
@@ -416,6 +448,12 @@ export const adminSaveSettings = createServerFn({ method: "POST" })
     }
     const card = clean["card_number"];
     if (card) clean["card_number"] = card.replace(/\D/g, "");
+    // "1 000 000" → "1000000": a limit typed with spaces must not silently turn into "no limit".
+    for (const k of ["daily_withdraw_limit", "weekly_withdraw_limit", "suspicious_repeat_count"] as const) {
+      const v = clean[k];
+      if (v !== undefined) clean[k] = v.replace(/[\s,'_]/g, "") || "0";
+      if (clean[k] !== undefined && !/^\d+$/.test(clean[k]!)) throw new Error(`Faqat raqam kiriting: ${k}`);
+    }
     await saveSettings(clean);
     return { ok: true };
   });
@@ -472,7 +510,7 @@ export const adminConnectBot = createServerFn({ method: "POST" })
       commands: [
         { command: "start", description: "Boshlash / Начать" },
         { command: "menu", description: "Asosiy menyu / Главное меню" },
-        { command: "lang", description: "Tilni o'zgartirish / Сменить язык" },
+        { command: "lang", description: "Til / Язык / Language" },
       ],
     });
     // Admins also see /admin and /karta in their own command list.
@@ -485,7 +523,7 @@ export const adminConnectBot = createServerFn({ method: "POST" })
           { command: "kanal", description: "🤳 Selfi kanalini ulash" },
           { command: "start", description: "Boshlash / Начать" },
           { command: "menu", description: "Asosiy menyu / Главное меню" },
-          { command: "lang", description: "Tilni o'zgartirish / Сменить язык" },
+          { command: "lang", description: "Til / Язык / Language" },
         ],
       }).catch(() => undefined);
     }
@@ -576,4 +614,136 @@ export const adminTestCashdesk = createServerFn({ method: "POST" })
       balance: balance.ok ? { balance: balance.balance, limit: balance.limit } : null,
       checkedAt: Date.now(),
     };
+  });
+
+// ---------- Promo codes ----------
+export const adminListPromos = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureMigrations();
+  return sql<
+    {
+      code: string;
+      bonus_percent: number;
+      max_uses: number;
+      used_count: number;
+      per_user: number;
+      expires_at: string | null;
+      is_active: boolean;
+      note: string;
+      bonus_total: number;
+      created_at: string;
+    }[]
+  >`
+    select p.code, p.bonus_percent::float8 as bonus_percent, p.max_uses, p.used_count, p.per_user,
+      case when p.expires_at is null then null else ${ts("p.expires_at")} end as expires_at,
+      p.is_active, p.note, ${ts("p.created_at")} as created_at,
+      coalesce((select sum(r.bonus) from public.promo_redemptions r where r.code = p.code), 0)::float8 as bonus_total
+    from public.promo_codes p
+    order by p.created_at desc`;
+});
+
+export const adminSavePromo = createServerFn({ method: "POST" })
+  .inputValidator((d) =>
+    z
+      .object({
+        code: z.string().trim().min(2).max(32),
+        bonus_percent: z.number().min(0.1).max(100),
+        max_uses: z.number().int().min(0).max(1_000_000),
+        per_user: z.number().int().min(0).max(1000),
+        expires_at: z.string().max(40).nullable(),
+        is_active: z.boolean(),
+        note: z.string().max(200).default(""),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureMigrations();
+    const code = normalizePromo(data.code);
+    if (!/^[A-Z0-9_-]{2,32}$/.test(code)) throw new Error("promo_bad_code");
+    const expires = data.expires_at ? new Date(data.expires_at) : null;
+    if (expires && Number.isNaN(expires.getTime())) throw new Error("promo_bad_date");
+    await sql`insert into public.promo_codes (code, bonus_percent, max_uses, per_user, expires_at, is_active, note)
+      values (${code}, ${data.bonus_percent}, ${data.max_uses}, ${data.per_user}, ${expires ? expires.toISOString() : null}, ${data.is_active}, ${data.note})
+      on conflict (code) do update set
+        bonus_percent = excluded.bonus_percent,
+        max_uses = excluded.max_uses,
+        per_user = excluded.per_user,
+        expires_at = excluded.expires_at,
+        is_active = excluded.is_active,
+        note = excluded.note`;
+    return { ok: true, code };
+  });
+
+export const adminDeletePromo = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ code: z.string().max(40) }).parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await sql`delete from public.promo_codes where code = ${normalizePromo(data.code)}`;
+    return { ok: true };
+  });
+
+// ---------- Bot auto-replies ----------
+export const adminListReplies = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureMigrations();
+  return sql<
+    {
+      id: string;
+      keywords: string;
+      question_uz: string;
+      answer_uz: string;
+      question_ru: string;
+      answer_ru: string;
+      question_en: string;
+      answer_en: string;
+      sort_order: number;
+      is_active: boolean;
+    }[]
+  >`
+    select id::text as id, keywords, question_uz, answer_uz, question_ru, answer_ru, question_en, answer_en, sort_order, is_active
+    from public.auto_replies order by sort_order, created_at`;
+});
+
+const replySchema = z.object({
+  id: z.string().uuid().nullable(),
+  keywords: z.string().max(1000),
+  question_uz: z.string().trim().min(1).max(200),
+  answer_uz: z.string().trim().min(1).max(3000),
+  question_ru: z.string().trim().max(200),
+  answer_ru: z.string().trim().max(3000),
+  question_en: z.string().trim().max(200),
+  answer_en: z.string().trim().max(3000),
+  sort_order: z.number().int().min(0).max(1000),
+  is_active: z.boolean(),
+});
+
+export const adminSaveReply = createServerFn({ method: "POST" })
+  .inputValidator((d) => replySchema.parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureMigrations();
+    if (data.id) {
+      await sql`update public.auto_replies set
+          keywords = ${data.keywords}, question_uz = ${data.question_uz}, answer_uz = ${data.answer_uz},
+          question_ru = ${data.question_ru}, answer_ru = ${data.answer_ru}, question_en = ${data.question_en},
+          answer_en = ${data.answer_en}, sort_order = ${data.sort_order}, is_active = ${data.is_active}
+        where id = ${data.id}`;
+    } else {
+      await sql`insert into public.auto_replies
+          (keywords, question_uz, answer_uz, question_ru, answer_ru, question_en, answer_en, sort_order, is_active)
+        values (${data.keywords}, ${data.question_uz}, ${data.answer_uz}, ${data.question_ru}, ${data.answer_ru},
+          ${data.question_en}, ${data.answer_en}, ${data.sort_order}, ${data.is_active})`;
+    }
+    clearCache("auto-replies");
+    return { ok: true };
+  });
+
+export const adminDeleteReply = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await sql`delete from public.auto_replies where id = ${data.id}`;
+    clearCache("auto-replies");
+    return { ok: true };
   });

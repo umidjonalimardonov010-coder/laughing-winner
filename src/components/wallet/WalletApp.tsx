@@ -16,7 +16,6 @@ type Sheet = "topup" | "withdraw" | "refs" | "lang" | null;
 function Splash() {
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center gap-6 overflow-hidden">
-      <LiveBackdrop />
       <div className="relative flex size-32 items-center justify-center">
         <div className="animate-glow absolute inset-0 rounded-full bg-primary/30 blur-2xl" />
         <div className="animate-ring absolute inset-0 rounded-full border-2 border-primary/15 border-t-primary" />
@@ -67,7 +66,7 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
     queryKey: ["wallet-boot", initData],
     queryFn: () => walletBootstrap({ data: { initData } }),
     enabled: tg !== undefined,
-    retry: 2,
+    retry: (n, e) => n < 2 && !String(e instanceof Error ? e.message : e).includes("BLOCKED"),
     staleTime: 15_000,
     // Balance refreshes quietly when the user comes back; the screen never blanks out.
     refetchOnWindowFocus: true,
@@ -137,14 +136,24 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
     };
   }, [q.data, lang, t, initData, tg]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // One backdrop for every state (splash → wallet), so the moving background never restarts or blinks.
+  return (
+    <>
+      <LiveBackdrop />
+      {renderBody()}
+    </>
+  );
+
+  function renderBody() {
   if (tg === undefined || q.isLoading) return <Splash />;
 
   // Only a first load that failed shows this; a failed background refresh keeps the current screen.
   if (!ctx) {
+    const blocked = String(q.error instanceof Error ? q.error.message : q.error ?? "").includes("BLOCKED");
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 px-8 text-center">
-        <div className="font-display text-2xl font-bold">{translate(lang, "openInTelegram")}</div>
-        <p className="text-muted-foreground">{translate(lang, "openInTelegramSub")}</p>
+        <div className="font-display text-2xl font-bold">{translate(lang, blocked ? "blockedTitle" : "openInTelegram")}</div>
+        <p className="text-muted-foreground">{translate(lang, blocked ? "blockedSub" : "openInTelegramSub")}</p>
       </div>
     );
   }
@@ -154,7 +163,6 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
     return (
       <Ctx.Provider value={ctx}>
         <div className="fixed inset-0 flex flex-col overflow-hidden">
-          <LiveBackdrop />
           <div className="tg-safe-top shrink-0" />
           <main className="no-scrollbar relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <PhoneGate />
@@ -173,7 +181,6 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
   return (
     <Ctx.Provider value={ctx}>
       <div className="fixed inset-0 flex flex-col overflow-hidden">
-        <LiveBackdrop />
         <div className="tg-safe-top shrink-0" />
         {ctx.boot.demo && (
           <div className="bg-gold/90 px-4 py-1.5 text-center text-xs font-medium text-gold-foreground">{t("demoBanner")}</div>
@@ -193,6 +200,7 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
                 onProfile={() => setPage("profile")}
                 onVideos={() => setPage("videos")}
                 onHelp={() => setPage("help")}
+                onReferrals={() => setSheet("refs")}
               />
             ) : tab === "services" ? (
               <Services onOpen={(b, m) => setBkOpen({ bk: b, mode: m })} />
@@ -214,4 +222,5 @@ export function WalletApp({ bk, mode }: { bk?: string | undefined; mode?: "depos
       </div>
     </Ctx.Provider>
   );
+  }
 }

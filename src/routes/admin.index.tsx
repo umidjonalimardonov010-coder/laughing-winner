@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { adminDashboard } from "@/lib/admin.functions";
 import { formatSom } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -52,7 +52,17 @@ function Dashboard() {
         <Link to="/admin/requests" className="block">
           <Stat label="Kutilayotgan so'rovlar" value={String(d?.pending ?? 0)} tone={d?.pending ? "warn" : undefined} />
         </Link>
-        <Stat label="Foydalanuvchilar" value={`${d?.users ?? 0}`} sub={`+${d?.newUsers ?? 0} yangi`} />
+        <Stat label="Foydalanuvchilar" value={`${d?.users ?? 0}`} sub={`+${d?.newUsers ?? 0} yangi · ${d?.blocked ?? 0} bloklangan`} />
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <Stat label="So'rovlar soni (davrda)" value={String(d?.requestCount ?? 0)} sub={days > 1 ? `kuniga o'rtacha ${Math.round((d?.requestCount ?? 0) / days)}` : undefined} />
+        <Stat
+          label="O'rtacha summa"
+          value={`${formatSom(cnt("wallet_topup") + cnt("card_withdraw") + cnt("bk_deposit") + cnt("bk_withdraw") ? Math.round((kirim + chiqim) / (cnt("wallet_topup") + cnt("card_withdraw") + cnt("bk_deposit") + cnt("bk_withdraw"))) : 0)} so'm`}
+        />
+        <Link to="/admin/requests" className="block">
+          <Stat label="Shubhali, kutilmoqda" value={String(d?.flagged ?? 0)} tone={d?.flagged ? "warn" : undefined} />
+        </Link>
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
@@ -95,6 +105,40 @@ function Dashboard() {
         </Panel>
       </div>
 
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <Panel>
+          <div className="mb-4 font-semibold">Kunlik so'rovlar soni</div>
+          <div className="h-64">
+            <ResponsiveContainer>
+              <LineChart data={d?.series ?? []}>
+                <CartesianGrid stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="date" tickFormatter={(v: string) => v.slice(5)} stroke="var(--muted-foreground)" fontSize={12} />
+                <YAxis allowDecimals={false} stroke="var(--muted-foreground)" fontSize={12} />
+                <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 12 }} />
+                <Line type="monotone" dataKey="soni" name="So'rovlar" stroke="var(--chart-3)" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+        <Panel>
+          <div className="mb-4 font-semibold">Eng faol foydalanuvchilar</div>
+          <ol className="space-y-2 text-sm">
+            {(d?.topUsers ?? []).map((u, i) => (
+              <li key={u.user_id} className="flex items-center gap-3">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {u.first_name ?? "—"} {u.username ? <span className="text-muted-foreground">@{u.username}</span> : null}
+                  {u.is_blocked && <span className="ml-1 rounded bg-destructive/15 px-1.5 text-xs text-destructive">bloklangan</span>}
+                </span>
+                <span className="text-muted-foreground">{u.count} ta</span>
+                <span className="tabular w-28 text-right font-semibold">{formatSom(u.sum)}</span>
+              </li>
+            ))}
+            {!d?.topUsers?.length && <li className="py-6 text-center text-muted-foreground">Bu davrda bajarilgan amallar yo'q</li>}
+          </ol>
+        </Panel>
+      </div>
+
       <Panel className="mt-4">
         <div className="mb-4 font-semibold">Bukmekerlar bo'yicha</div>
         <div className="overflow-x-auto">
@@ -129,7 +173,7 @@ function Dashboard() {
   );
 }
 
-function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "in" | "out" | "warn" | undefined }) {
+function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string | undefined; tone?: "in" | "out" | "warn" | undefined }) {
   return (
     <Panel className={cn(tone === "in" && "border-primary/40", tone === "out" && "border-gold/40", tone === "warn" && "border-warning/50")}>
       <div className="text-sm text-muted-foreground">{label}</div>

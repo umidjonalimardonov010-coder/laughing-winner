@@ -67,6 +67,9 @@ export function errMsg(e: unknown) {
     bot_not_connected: "Telegram bot hali ulanmagan",
     https_required: "Manzil https:// bilan boshlanishi kerak",
     min_gt_max: "Minimal summa maksimaldan katta bo'lmasin",
+    promo_bad_code: "Promo-kod faqat lotin harflari, raqam, - va _ dan iborat bo'lsin (2–32 belgi)",
+    promo_bad_date: "Muddat sanasi noto'g'ri",
+    user_not_found: "Foydalanuvchi topilmadi",
   };
   for (const [k, v] of Object.entries(map)) if (m.includes(k)) return v;
   return m || "Xatolik yuz berdi";

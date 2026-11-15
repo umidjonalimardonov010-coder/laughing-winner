@@ -17,6 +17,9 @@ export const SETTING_KEYS = [
   "public_url",
   "bot_username",
   "selfie_channel_id",
+  "daily_withdraw_limit",
+  "weekly_withdraw_limit",
+  "suspicious_repeat_count",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 export type Settings = Record<SettingKey, string>;

@@ -51,4 +51,5 @@
 - [ ] Finish the "withdraw request kept when keys are refused" check
 - [x] Bot "💰 Bonus olish" menu: Balans (+ Yechib olish → Linebet), Do'stimni chaqirish (fixed som per referral, set in admin), Kunlik bonus (min–max som, set in admin)
 - [x] Bot «Kurs | Zahira»: admin types sell/buy rate lines in Sozlamalar → Kurs
-- [ ] Push bonus menu + rates to GitHub — waiting until the other project's push lands (else one push overwrites the other)
+- [x] Push bonus menu + rates to GitHub
+- [x] Main menu: Amallar (history, rates/reserve) removed; 💰 BONUS OLISH sits in its place

@@ -3,18 +3,18 @@
 // the cashdesk tops up the account. Withdraw: bookmaker → card → account ID → cashdesk code → payout →
 // admin sends the money to the card. Conversation steps live in public.bot_state.
 import { ensureMigrations } from "./migrations.server";
-import { maybeOne, sql, ts } from "./db.server";
+import { maybeOne, sql } from "./db.server";
 import { getSettings, num, publicBase, saveSettings, type Settings } from "./settings.server";
 import { approveRequest, isTelegramAdmin, rejectRequest, requestFlag, setUserBlocked } from "./requests.server";
 import { cleanCardNumber } from "./admins";
 import { loadCashdeskCreds } from "./cashdesk-config.server";
-import { cashdeskBalance, cashdeskFindUser } from "./cashdesk.server";
+import { cashdeskFindUser } from "./cashdesk.server";
 import { escapeHtml, tg } from "./telegram.server";
 import { savePhone, upsertTgUser, type TgFrom, type TgUser } from "./users.server";
 import { isOwnContact, normalizePhone } from "@/lib/verification";
 import { channelFromBotPromotion, channelFromForward, type ChannelRef } from "@/lib/channel-link";
 import { resolveBotUsername } from "./bot-username.server";
-import { formatDateTime, formatSom, maskCard } from "@/lib/format";
+import { formatSom, maskCard } from "@/lib/format";
 import { matchReply, replyText, type AutoReply } from "@/lib/auto-reply";
 import { cached } from "./memo.server";
 import { adminKeyboard, inBackground, notifyAdminsNewRequest } from "./notify.server";
@@ -37,7 +37,6 @@ import type { Bookmaker } from "./wallet-auth.server";
 import { BONUS_BK, autoSendBonus, bonusBalance, createBonusWithdraw } from "./bonus.server";
 import { BONUS_TXT, balanceScreen, dailyScreen, inviteScreen } from "./bot-bonus.server";
 import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
-import { defaultRateLine, rateLines } from "@/lib/rates";
 
 type L = "uz" | "ru";
 const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : "uz");
@@ -129,12 +128,6 @@ const TXT = {
     cardSaved: "💳 Karta raqamingiz saqlandi",
     accAsk: (bk: string) => `${bk} hisobingiz raqamini kiriting:`,
     accSaved: (bk: string) => `${bk} hamyon raqamingiz kiritildi`,
-    opsLast: (n: number) => `Sizning so'ngi ${n} almashuvingiz`,
-    sell: "📊<b>Sotish kursi</b>",
-    buy: "📊<b>Olish kursi</b>",
-    reserveBtn: "💰 Zahira",
-    reserveTitle: "💰 <b>Zahira</b>",
-    reserveOk: "mavjud",
     contact: "Savollaringizni ushbu bot orqali jo`nating:",
     chat: "💬 Chat",
     channel: "👥 Rasmiy kanal",
@@ -195,12 +188,6 @@ const TXT = {
     cardSaved: "💳 Номер карты сохранён",
     accAsk: (bk: string) => `Введите номер вашего счёта ${bk}:`,
     accSaved: (bk: string) => `Номер счёта ${bk} сохранён`,
-    opsLast: (n: number) => `Ваши последние ${n} обменов`,
-    sell: "📊<b>Курс продажи</b>",
-    buy: "📊<b>Курс покупки</b>",
-    reserveBtn: "💰 Резерв",
-    reserveTitle: "💰 <b>Резерв</b>",
-    reserveOk: "есть",
     contact: "Отправляйте вопросы через этого бота:",
     chat: "💬 Чат",
     channel: "👥 Официальный канал",
@@ -223,18 +210,12 @@ function mainKeyboard(l: L, admin = false) {
     keyboard: [
       [{ text: m.deposit, style: "success" }],
       [{ text: m.accounts }, { text: m.withdraw, style: "primary" }],
-      [{ text: m.ops }, { text: m.contact }],
-      [{ text: m.bonus, style: "success" }],
+      [{ text: m.bonus, style: "success" }, { text: m.contact }],
       ...(admin ? [[{ text: ADMIN_BUTTON }]] : []),
     ],
     resize_keyboard: true,
     is_persistent: true,
   };
-}
-
-function opsKeyboard(l: L) {
-  const m = MENU[l];
-  return { keyboard: [[{ text: m.history }, { text: m.rates }], [{ text: m.back }]], resize_keyboard: true, is_persistent: true };
 }
 
 function bonusKeyboard(l: L) {
@@ -576,55 +557,6 @@ async function showAccounts(chatId: number, l: L, s: Settings, userId: number) {
   });
 }
 
-async function showHistory(chatId: number, l: L, userId: number) {
-  const txs = await sql<
-    { number: number; type: string; status: string; amount: number; account_id: string | null; bk: string | null; created_at: string }[]
-  >`
-    select t.number::float8 as number, t.type, t.status, t.amount::float8 as amount, t.account_id,
-      (select b.name from public.bookmakers b where b.id = t.bookmaker_id) as bk, ${ts("t.created_at")} as created_at
-    from public.transactions t
-    where t.user_id = ${userId} and t.type in ('bk_deposit', 'bk_withdraw', 'wallet_topup', 'card_withdraw')
-    order by t.created_at desc limit 10`;
-  const t = TXT[l];
-  const lines = txs.map(
-    (x) =>
-      `<blockquote>#${x.number} ${t.ty[x.type] ?? x.type}${x.bk ? ` · ${escapeHtml(x.bk)}` : ""}${x.account_id ? ` · ${escapeHtml(x.account_id)}` : ""}\n💰 ${formatSom(x.amount)} UZS · ${t.st[x.status] ?? x.status}\n🕒 ${formatDateTime(x.created_at)}</blockquote>`,
-  );
-  await say(chatId, [t.opsLast(txs.length), ...lines].join("\n"));
-}
-
-async function showRates(chatId: number, l: L, s: Settings) {
-  const bks = await bkList(s);
-  const t = TXT[l];
-  // Admin panel → Sozlamalar → Kurs; until typed, 1 to 1 for each open bookmaker.
-  const pick = (typed: string, open: Bookmaker[]) => {
-    const lines = rateLines(typed);
-    return (lines.length ? lines : open.map((b) => defaultRateLine(b.name))).map(escapeHtml);
-  };
-  const dep = pick(s.rates_sell, bks.filter((b) => b.deposit_enabled));
-  const wd = pick(s.rates_buy, bks.filter((b) => b.withdraw_enabled));
-  await say(chatId, `${t.sell}\n${dep.join("\n") || "—"}\n\n${t.buy}\n${wd.join("\n") || "—"}`, {
-    inline_keyboard: [[{ text: t.reserveBtn, callback_data: "reserve" }]],
-  });
-}
-
-/** Money the cashdesk can still put on accounts, per bookmaker (checked at most once a minute). */
-async function reserveText(l: L, s: Settings) {
-  const bks = (await bkList(s)).filter((b) => b.deposit_enabled);
-  const lines = await Promise.all(
-    bks.map(async (b) => {
-      const v = await cached(`reserve:${b.id}`, 60_000, async () => {
-        const creds = await loadCashdeskCreds(b.id);
-        if (!creds) return null;
-        const r = await cashdeskBalance(creds);
-        return r.ok ? Math.max(0, Math.floor(r.limit || r.balance)) : null;
-      });
-      return `<blockquote>${escapeHtml(b.name)}: <b>${v === null ? TXT[l].reserveOk : `${formatSom(v)} UZS`}</b></blockquote>`;
-    }),
-  );
-  return [TXT[l].reserveTitle, ...lines].join("\n");
-}
-
 async function showContact(chatId: number, l: L, s: Settings) {
   const chat = tgLink(s.support_username);
   const channel = tgLink(s.channel_username);
@@ -749,7 +681,6 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
 async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Settings, user: TgUser, data: string) {
   const t = TXT[l];
   if (data === "noop") return;
-  if (data === "reserve") return say(chatId, await reserveText(l, s));
   if (data === "faq:list") {
     const f = faqList(l, await loadReplies());
     return editInPlace(cq, f.text, f.markup);
@@ -948,9 +879,8 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     if (action === "deposit") return showDeposit(chatId, l, s);
     if (action === "withdraw") return showWithdraw(chatId, l, s);
     if (action === "accounts") return showAccounts(chatId, l, s, user.id);
-    if (action === "ops") return say(chatId, t.pick, opsKeyboard(l));
-    if (action === "history") return showHistory(chatId, l, user.id);
-    if (action === "rates") return showRates(chatId, l, s);
+    // The Amallar menu is gone; a tap on an old keyboard brings the new main menu.
+    if (action === "ops" || action === "history" || action === "rates") return sendMainMenu(chatId, l, s);
     if (action === "contact") return showContact(chatId, l, s);
     if (action === "bonus") return say(chatId, BONUS_TXT[l].menu, bonusKeyboard(l));
     if (action === "balance" || action === "invite" || action === "daily") {

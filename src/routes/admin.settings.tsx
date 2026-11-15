@@ -43,25 +43,6 @@ const GROUPS: { title: string; fields: Field[] }[] = [
     ],
   },
   {
-    title: "🏧 Kurs (botdagi «Kurs | Zahira»)",
-    fields: [
-      {
-        key: "rates_sell",
-        label: "📊 Sotish kursi (hisob to'ldirish)",
-        hint: "Har qatorga bitta kurs, botda aynan shunday chiqadi. Bo'sh bo'lsa: har bir bukmeker uchun «1 … UZS = 1 UZS».",
-        placeholder: "1 LINEBET UZS = 1 UZS\n1 LINEBET RUB = 160 UZS\n1 LINEBET USD = 12500 UZS",
-        multiline: true,
-      },
-      {
-        key: "rates_buy",
-        label: "📊 Olish kursi (yechib olish)",
-        hint: "Har qatorga bitta kurs. Bo'sh bo'lsa: har bir bukmeker uchun «1 … UZS = 1 UZS».",
-        placeholder: "1 LINEBET UZS = 1 UZS\n1 LINEBET RUB = 160 UZS\n1 LINEBET USD = 12500 UZS",
-        multiline: true,
-      },
-    ],
-  },
-  {
     title: "Xavfsizlik va limitlar",
     fields: [
       {

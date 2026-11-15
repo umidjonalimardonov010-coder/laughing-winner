@@ -10,6 +10,7 @@ import { removeMedia, signedUploadUrl, signedUrl, signedUrls } from "./server/me
 import { ensureMigrations } from "./server/migrations.server";
 import { TX_COLS, type TxRow } from "./server/tx.server";
 import { BOOKMAKER_COLS, type Bookmaker } from "./server/wallet-auth.server";
+import { applyBotProfile } from "./server/bot-profile.server";
 import { USER_COLS, type TgUser } from "./server/users.server";
 import { getBotInfo, telegramMode, tg, webhookSecret } from "./server/telegram.server";
 import { VIDEO_SLOT_IDS } from "./videos";
@@ -204,12 +205,14 @@ export const adminListRequests = createServerFn({ method: "POST" })
         selfie_path: string | null;
         flag: string | null;
         promo_code: string | null;
+        source: string | null;
         user_blocked: boolean | null;
       })[]
     >`
       select ${TX_COLS()},
         to_jsonb(t) ->> 'flag' as flag,
         to_jsonb(t) ->> 'promo_code' as promo_code,
+        to_jsonb(t) ->> 'source' as source,
         (select u.is_blocked from public.tg_users u where u.id = t.user_id) as user_blocked,
         (select u.phone from public.tg_users u where u.id = t.user_id) as phone,
         to_jsonb(t) ->> 'selfie_path' as selfie_path,
@@ -503,16 +506,7 @@ export const adminConnectBot = createServerFn({ method: "POST" })
       max_connections: 100,
       drop_pending_updates: false,
     });
-    await tg("setChatMenuButton", {
-      menu_button: { type: "web_app", text: "📱 WALLET", web_app: { url: `${base}/app` } },
-    });
-    await tg("setMyCommands", {
-      commands: [
-        { command: "start", description: "Boshlash / Начать" },
-        { command: "menu", description: "Asosiy menyu / Главное меню" },
-        { command: "lang", description: "Til / Язык / Language" },
-      ],
-    });
+    await applyBotProfile(s.brand_name).catch((e) => console.error("bot profile", e));
     // Admins also see /admin and /karta in their own command list.
     for (const id of parseAdminIds(s.admin_chat_id).filter((x) => x > 0)) {
       await tg("setMyCommands", {
@@ -520,16 +514,12 @@ export const adminConnectBot = createServerFn({ method: "POST" })
         commands: [
           { command: "admin", description: "🛠 Admin panel" },
           { command: "karta", description: "To'ldirish kartasini o'zgartirish" },
-          { command: "kanal", description: "🤳 Selfi kanalini ulash" },
           { command: "start", description: "Boshlash / Начать" },
-          { command: "menu", description: "Asosiy menyu / Главное меню" },
-          { command: "lang", description: "Til / Язык / Language" },
+          { command: "menu", description: "Bosh menyu / Главное меню" },
+          { command: "lang", description: "Til / Язык" },
         ],
       }).catch(() => undefined);
     }
-    await tg("setMyDescription", {
-      description: `${s.brand_name || "Kassa 24/7"}: bukmeker hisobini tez to'ldirish va yechish. 24/7.`,
-    }).catch(() => undefined);
     await saveSettings({ public_url: base, bot_username: bot.username });
     return { ok: true, bot: bot.username };
   });

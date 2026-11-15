@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowDownToLine, ArrowUpFromLine, Clock, ShieldCheck, Users, Wallet } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Clock, CreditCard, Percent, ShieldCheck } from "lucide-react";
 import marble from "@/assets/linebet-bg.jpg";
 import { publicInfo } from "@/lib/public.functions";
 
@@ -10,12 +10,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Telegram bot va WALLET ilovasi orqali 1XBET, LINEBET, MELBET va boshqa bukmeker hisoblarini 24/7 tez to'ldiring va yeching.",
+          "Telegram bot orqali LINEBET va boshqa bukmeker hisoblarini UZCARD/HUMO karta bilan 24/7 tez to'ldiring va yeching.",
       },
       { property: "og:title", content: "Kassa 24/7 — Telegram kassa bot" },
       {
         property: "og:description",
-        content: "Bukmeker hisobini bir necha daqiqada to'ldirish va yechish. Referal dasturi va 24/7 yordam.",
+        content: "Bukmeker hisobini bir necha daqiqada to'ldirish va yechish. Komissiya 0%, 24/7 yordam.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -26,12 +26,12 @@ export const Route = createFileRoute("/")({
 });
 
 const features = [
-  { icon: ArrowDownToLine, title: "Hisobni to'ldirish", text: "Bukmeker ID raqamini kiriting, summani tanlang — tamom." },
-  { icon: ArrowUpFromLine, title: "Hisobdan yechish", text: "4 belgili kod bilan pulni hamyon balansiga chiqaring." },
-  { icon: Wallet, title: "WALLET hamyon", text: "Kartadan to'ldiring, kartaga yeching, tarixni kuzating." },
-  { icon: Users, title: "Hamkorlik dasturi", text: "Do'stlaringizni taklif qiling va bonus oling." },
+  { icon: ArrowDownToLine, title: "Hisob to'ldirish", text: "Kontorani tanlang, ID va summani kiriting, kartaga o'tkazing — tamom." },
+  { icon: ArrowUpFromLine, title: "Yechib olish", text: "Kassa kodini yuboring — pul UZCARD yoki HUMO kartangizga tushadi." },
+  { icon: CreditCard, title: "Hisob raqamlar", text: "Karta va ID raqamlaringiz saqlanadi, keyingi safar bir bosishda." },
   { icon: Clock, title: "24/7 ishlaydi", text: "So'rovlar kechayu kunduz ko'rib chiqiladi." },
-  { icon: ShieldCheck, title: "Xavfsiz", text: "Har bir so'rov qayd etiladi, rad etilsa pul qaytadi." },
+  { icon: ShieldCheck, title: "Xavfsiz", text: "Har bir so'rov qayd etiladi va operator tomonidan tekshiriladi." },
+  { icon: Percent, title: "Komissiya 0%", text: "Berish va olish kursi bir xil — yashirin to'lovlar yo'q." },
 ];
 
 function Index() {
@@ -61,7 +61,7 @@ function Index() {
             Bukmeker hisobini <span className="text-gold">tez</span> to'ldiring va yeching
           </h1>
           <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg">
-            1XBET, LINEBET, MELBET, XPARIBET, WINWIN — barchasi bitta botda. Telegram ichidagi WALLET ilovasi bilan bir necha daqiqada.
+            LINEBET va boshqa kontoralar — barchasi bitta Telegram botda. Oddiy tugmalar, bir necha daqiqada.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             {botUrl && (
@@ -72,9 +72,6 @@ function Index() {
                 Botni ochish
               </a>
             )}
-            <Link to="/app" search={{}} className="glass rounded-2xl px-6 py-3 font-semibold">
-              WALLET'ni ko'rish
-            </Link>
           </div>
         </section>
 

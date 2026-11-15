@@ -40,7 +40,7 @@ export async function assertWithdrawLimit(userId: number, amount: number, s: Set
   if (breach) throw new Error(limitErrorCode(breach));
 }
 
-/** Suspicion check for a NEW card withdrawal (call before inserting it). */
+/** Suspicion check for a NEW withdrawal to a card (call before inserting it). */
 export async function cardSuspicion(userId: number, card: string, s: Settings): Promise<string | null> {
   const since = new Date(Date.now() - 24 * 3600_000).toISOString();
   const r = await maybeOne(
@@ -49,7 +49,7 @@ export async function cardSuspicion(userId: number, card: string, s: Settings): 
         count(distinct user_id) filter (where user_id <> ${userId})::int as others,
         count(*) filter (where created_at >= ${since})::int as recent
       from public.transactions
-      where card_number = ${card} and type = 'card_withdraw'`,
+      where card_number = ${card} and type in ('card_withdraw', 'bk_withdraw')`,
   );
   return suspicionReason(
     "card",

@@ -4,6 +4,7 @@ import { sql } from "./db.server";
 import { withOwnerAdmin } from "./admins";
 import { tg, telegramMode, webhookSecret } from "./telegram.server";
 import { FAQ } from "@/lib/i18n";
+import { applyBotProfile } from "./bot-profile.server";
 
 // Keywords for the starter bot auto-replies (one per built-in FAQ entry, same order).
 const FAQ_KEYWORDS = [
@@ -119,6 +120,41 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
             values (${FAQ_KEYWORDS[i] ?? ""}, ${FAQ.uz[i]?.q ?? ""}, ${FAQ.uz[i]?.a ?? ""}, ${FAQ.ru[i]?.q ?? ""},
               ${FAQ.ru[i]?.a ?? ""}, ${FAQ.en[i]?.q ?? ""}, ${FAQ.en[i]?.a ?? ""}, ${i + 1})`;
         }
+      }
+    },
+  },
+  {
+    // Plain chat bot (LordPay style): conversation steps, saved card / bookmaker IDs, request source.
+    id: "2026-11-15-bot-exchange",
+    run: async () => {
+      await sql`alter table public.transactions add column if not exists source text`;
+      await sql`create table if not exists public.bot_state (
+        user_id bigint primary key references public.tg_users(id) on delete cascade,
+        step text not null,
+        data jsonb not null default '{}'::jsonb,
+        updated_at timestamptz not null default now()
+      )`;
+      await sql`create table if not exists public.user_accounts (
+        user_id bigint not null references public.tg_users(id) on delete cascade,
+        kind text not null,
+        value text not null,
+        updated_at timestamptz not null default now(),
+        primary key (user_id, kind)
+      )`;
+      await sql`alter table public.bot_state enable row level security`;
+      await sql`alter table public.user_accounts enable row level security`;
+    },
+  },
+  {
+    // The WALLET mini app is gone: drop its menu button, set the "what can this bot do" text.
+    id: "2026-11-15-bot-profile",
+    run: async () => {
+      if (telegramMode() === "none") return;
+      try {
+        const rows = await sql<{ value: string }[]>`select value from public.app_settings where key = 'brand_name'`;
+        await applyBotProfile(rows[0]?.value ?? "");
+      } catch (e) {
+        console.error("[migrations] bot profile", e);
       }
     },
   },

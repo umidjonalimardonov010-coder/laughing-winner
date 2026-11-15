@@ -6,8 +6,15 @@ import { notifyUserStatus } from "./notify.server";
 import { TX_COLS, type TxRow } from "./tx.server";
 import { isAdminId } from "./admins";
 import { releasePromo } from "./safety.server";
+import { approveBotRequest, rejectBotRequest, txSource } from "./exchange.server";
 
 export async function approveRequest(id: string, amount = 0, note = ""): Promise<TxRow> {
+  // Chat-bot requests move money between the card and the bookmaker directly (no wallet balance).
+  if ((await txSource(id)) === "bot") {
+    const done = await approveBotRequest(id, amount, note);
+    await notifyUserStatus(done);
+    return done;
+  }
   const t = await maybeOne(
     sql<{ bookmaker_id: string | null; type: string }[]>`select bookmaker_id, type from public.transactions where id = ${id}`,
   );
@@ -31,6 +38,11 @@ export async function approveRequest(id: string, amount = 0, note = ""): Promise
 }
 
 export async function rejectRequest(id: string, note = ""): Promise<TxRow> {
+  if ((await txSource(id)) === "bot") {
+    const done = await rejectBotRequest(id, note);
+    await notifyUserStatus(done);
+    return done;
+  }
   const rows = await sql<TxRow[]>`select ${TX_COLS()} from reject_transaction(${id}, ${note || null})`;
   const done = rows[0];
   if (!done) throw new Error("not_found");

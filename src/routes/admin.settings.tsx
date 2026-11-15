@@ -21,43 +21,24 @@ export const Route = createFileRoute("/admin/settings")({
 const GROUPS: { title: string; fields: { key: string; label: string; hint?: string; placeholder?: string }[] }[] = [
   {
     title: "Umumiy",
-    fields: [{ key: "brand_name", label: "Xizmat nomi", hint: "Bot xabarlarida va ilovada ko'rinadi", placeholder: "Kassa 24/7" }],
+    fields: [{ key: "brand_name", label: "Xizmat nomi", hint: "Bot xabarlarida va tavsifida ko'rinadi", placeholder: "Kassa 24/7" }],
   },
   {
-    title: "Hamyonni to'ldirish kartasi",
+    title: "To'lov qabul qilinadigan karta",
     fields: [
-      { key: "card_number", label: "Karta raqami", hint: "Foydalanuvchi shu kartaga pul o'tkazadi", placeholder: "8600 0000 0000 0000" },
+      { key: "card_number", label: "Karta raqami", hint: "Hisob to'ldirishda mijoz shu kartaga pul o'tkazadi. Bo'sh bo'lsa to'ldirish yopiq.", placeholder: "8600 0000 0000 0000" },
       { key: "card_holder", label: "Karta egasi", placeholder: "ISM FAMILIYA" },
-      { key: "min_topup", label: "Minimal to'ldirish (so'm)" },
-      { key: "max_topup", label: "Maksimal to'ldirish (so'm)" },
-    ],
-  },
-  {
-    title: "Kartaga yechish",
-    fields: [
-      { key: "min_card_withdraw", label: "Minimal yechish (so'm)" },
-      { key: "max_card_withdraw", label: "Maksimal yechish (so'm)" },
+      { key: "min_topup", label: "Minimal to'ldirish (so'm)", hint: "Bukmekerda min summa yozilmagan bo'lsa" },
+      { key: "max_topup", label: "Maksimal to'ldirish (so'm)", hint: "Bukmekerda max summa yozilmagan bo'lsa" },
     ],
   },
   {
     title: "Xavfsizlik va limitlar",
     fields: [
       {
-        key: "daily_withdraw_limit",
-        label: "Kunlik yechish limiti, bir kishiga (so'm)",
-        hint: "Bir foydalanuvchi bir kunda kartaga shundan ko'p yecha olmaydi. 0 — limitsiz. Kun Toshkent vaqti bilan 00:00 da yangilanadi.",
-        placeholder: "0",
-      },
-      {
-        key: "weekly_withdraw_limit",
-        label: "Haftalik yechish limiti, bir kishiga (so'm)",
-        hint: "Oxirgi 7 kun ichida kartaga yechish jami. 0 — limitsiz.",
-        placeholder: "0",
-      },
-      {
         key: "suspicious_repeat_count",
         label: "Shubhali so'rov: 24 soatda bir xil karta/BK hisob necha marta",
-        hint: "Shuncha marta (yoki karta/BK hisob boshqa odamda ham ishlatilgan bo'lsa) so'rov ⚠️ shubhali deb belgilanadi: avto-to'lov bo'lmaydi, admin ikki bosqichda tasdiqlaydi. 0 — faqat boshqa odam tekshiruvi.",
+        hint: "Shuncha marta (yoki karta/BK hisob boshqa odamda ham ishlatilgan bo'lsa) yechish so'rovi ⚠️ shubhali deb belgilanadi: kassadan avto yechilmaydi, admin ikki bosqichda tasdiqlaydi. 0 — faqat boshqa odam tekshiruvi.",
         placeholder: "3",
       },
     ],
@@ -65,26 +46,19 @@ const GROUPS: { title: string; fields: { key: string; label: string; hint?: stri
   {
     title: "Bonuslar",
     fields: [
-      { key: "deposit_bonus_percent", label: "Bukmekerga to'ldirish bonusi, %", hint: "Admin BK hisobiga summa + bonusni tushiradi" },
-      { key: "referral_percent", label: "Referal bonusi, %", hint: "Taklif qilgan odam do'stining har bir to'ldirishidan oladi" },
+      { key: "deposit_bonus_percent", label: "Hisob to'ldirish bonusi, %", hint: "Mijoz BK hisobiga summa + shu foizni oladi («Olish» summasi). 0 — bonus yo'q, berish = olish." },
     ],
   },
   {
     title: "Aloqa",
     fields: [
-      { key: "support_username", label: "Qo'llab-quvvatlash (Telegram username)", placeholder: "@support" },
-      { key: "channel_username", label: "Kanal (Telegram username)", placeholder: "@kanal" },
+      { key: "support_username", label: "«💬 Chat» tugmasi — qo'llab-quvvatlash", hint: "Telegram username yoki havola. Bog'lanish bo'limida chiqadi.", placeholder: "@support" },
+      { key: "channel_username", label: "«👥 Rasmiy kanal» tugmasi", hint: "Telegram username yoki havola (t.me/...).", placeholder: "@kanal" },
       {
         key: "admin_chat_id",
         label: "Adminlarning Telegram ID raqamlari",
         hint: "Yangi so'rov kelganda shu odamlarga xabar boradi. Bir nechta bo'lsa vergul bilan yozing. ID ni @userinfobot dan bilish mumkin.",
         placeholder: "123456789, 987654321",
-      },
-      {
-        key: "selfie_channel_id",
-        label: "Yuz suratlari kanali (yopiq kanal)",
-        hint: "Pul chiqarishdagi selfi, ism, telefon, so'rov raqami, karta/ID va summa shu kanalga boradi. Eng oson yo'li: botni kanalga admin qiling — ID o'zi yoziladi. Yoki kanaldagi istalgan postni botga forward qiling. Kanal havolasi (t.me/+...) emas, ID kerak: -100 bilan boshlanadi. Bo'sh bo'lsa — adminlarga yuboriladi.",
-        placeholder: "-1001234567890",
       },
     ],
   },
@@ -198,7 +172,7 @@ function BotPanel() {
               className="h-10 w-full rounded-xl border border-input bg-secondary px-3 font-mono text-sm outline-none focus:border-primary"
             />
             <span className="block text-xs text-muted-foreground">
-              Bot va WALLET tugmasi shu manzil orqali ishlaydi. Railway'ga ko'chirganda yangi manzilni yozib, qayta bosing.
+              Bot shu manzil orqali ishlaydi. Railway'ga ko'chirganda yangi manzilni yozib, qayta bosing.
             </span>
           </label>
           <button

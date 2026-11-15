@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { BarChart3, Building2, Film, Inbox, Loader2, LogOut, MessageSquareText, Settings, Ticket, Users } from "lucide-react";
 import { toast } from "sonner";
 import { adminLogin, adminLogout, adminStatus, adminTelegramLogin } from "@/lib/admin.functions";
-import { loadTelegram } from "@/components/wallet/telegram";
+import { loadTelegram } from "@/components/admin/telegram";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin")({

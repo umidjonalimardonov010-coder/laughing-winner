@@ -24,7 +24,7 @@
 - [x] Requests → bot only (pro layout with phone + time); selfies → channel only; /kanal + one-tap 'add bot to channel'
 - [x] Bot/wallet speed: alerts sent after the reply, webhook answers Telegram within 4 s, buttons stop spinning at once
 - [x] Selfie auto-shot when the full face is centred in the oval (face detection), manual button still works
-- [ ] Selfie channel live — owner taps /kanal → 'Botni kanalga qo'shish' (until then selfies aren't sent anywhere, still visible in admin panel)
+- [x] Selfie channel — no longer used (wallet removed, bot has no selfie step)
 
 ## 2026-11-15 request: money safety, users, admin, comfort
 - [x] Bot: nothing disappears/reappears — edit messages in place, stop re-sending the bottom keyboard; wallet screens don't blink
@@ -38,5 +38,11 @@
 - [x] Block user in one tap (Telegram alert + requests page; users page already had it)
 - [x] Bot auto-replies: admin-managed Q&A, "❓ Savol-javob" button + keyword answers
 - [x] Bot gets English (wallet already had it)
-- [ ] Another language (e.g. Uzbek Cyrillic, Kazakh, Tajik) — waiting for the owner to choose
+- [x] Languages: bot is now O'zbek + Русский like the reference bot
 - [x] Dark mode: wallet is already dark — tell user
+
+## 2026-11-15 request: simple bot like the LordPay screenshots
+- [x] Send the user the full WALLET code (wallet-kodi.zip in Files) before removing it
+- [x] Remove the WALLET mini app; keep the admin panel
+- [x] Rebuild the bot like the screenshots: language → phone → main keyboard (Hisob to'ldirish, Hisob raqamlar, Yechib olish, Amallar/Kurs-Zahira, Bog'lanish), BK list, saved BK account IDs
+- [ ] Push to GitHub once the bot is done

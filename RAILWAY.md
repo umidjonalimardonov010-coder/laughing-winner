@@ -60,8 +60,8 @@ Boshqa bukmekerlar yashirilgan; admin panel → **Bukmekerlar** → "Ko'rinadi" 
 3. `https://<manzil>/admin` → parol bilan kiring.
 4. **Sozlamalar** → karta raqami, karta egasi, support/kanal username, admin chat ID → Saqlash.
 5. **Telegram bot → Botni ulash / yangilash** tugmasini bosing.
-6. Telegram'da `/start` → menyu va pastda **📱 WALLET** tugmasi.
-7. **Videolar** va **Bukmekerlar** bo'limlaridan MP4 va logotiplarni yuklang.
+6. Telegram'da `/start` → til → telefon → pastda 📮 Hisob to'ldirish, 💳 Hisob raqamlar, 📤 Yechib olish, 📆 Amallar, 📲 Bog'lanish.
+7. **Bukmekerlar** bo'limida nomi (masalan «LINEBET UZB»), kassa manzili, min/max summani yozing.
 
 ## Texnik ma'lumot (dasturchi uchun)
 - Qurish: `bun run build` — `vite.config.ts` da `nitro: { preset: "node-server" }` qo'yilgan,
@@ -71,5 +71,5 @@ Boshqa bukmekerlar yashirilgan; admin panel → **Bukmekerlar** → "Ko'rinadi" 
 - Fayllar diskda: `MEDIA_DIR` ichida `media/` (videolar/logotiplar) va `receipts/` (cheklar).
   Yuklash va o'qish faqat vaqtincha imzolangan havola orqali (`/api/public/upload/...`,
   `/api/public/media/...`) — havola `SESSION_SECRET` bilan imzolanadi, muddati o'tgach ishlamaydi.
-- Bukmeker API (ID tekshirish, avtomatik to'ldirish) ulanadigan joy:
-  `walletCheckAccount`, `walletBkDeposit`, `walletBkWithdraw` — `src/lib/wallet.functions.ts`.
+- Bot suhbati: `src/lib/server/bot.server.ts`; to'ldirish/yechish so'rovlari va bukmeker API (ID tekshirish,
+  avtomatik to'ldirish/yechish): `src/lib/server/exchange.server.ts`.

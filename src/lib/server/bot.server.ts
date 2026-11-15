@@ -1,205 +1,217 @@
-// Telegram bot conversation logic (chat side). Money operations happen in the WALLET mini app.
+// Telegram bot (LordPay-style plain chat bot): language → phone → main keyboard.
+// Deposit: bookmaker → account ID → card → amount → transfer to our card → "✅ To'lov qildim" → admin ✅ →
+// the cashdesk tops up the account. Withdraw: bookmaker → card → account ID → cashdesk code → payout →
+// admin sends the money to the card. Conversation steps live in public.bot_state.
 import { ensureMigrations } from "./migrations.server";
 import { maybeOne, sql, ts } from "./db.server";
-import { getSettings, publicBase, saveSettings, type Settings } from "./settings.server";
-import { approveRequest, isTelegramAdmin, rejectRequest } from "./requests.server";
+import { getSettings, num, publicBase, saveSettings, type Settings } from "./settings.server";
+import { approveRequest, isTelegramAdmin, rejectRequest, requestFlag, setUserBlocked } from "./requests.server";
 import { cleanCardNumber } from "./admins";
 import { loadCashdeskCreds } from "./cashdesk-config.server";
+import { cashdeskBalance, cashdeskFindUser } from "./cashdesk.server";
 import { escapeHtml, tg } from "./telegram.server";
-import { listReferrals, savePhone, upsertTgUser, type TgFrom } from "./users.server";
+import { savePhone, upsertTgUser, type TgFrom, type TgUser } from "./users.server";
 import { isOwnContact, normalizePhone } from "@/lib/verification";
 import { channelFromBotPromotion, channelFromForward, type ChannelRef } from "@/lib/channel-link";
-import { signedUrl } from "./media.server";
 import { resolveBotUsername } from "./bot-username.server";
-import { referralLink, shareLink } from "@/lib/referral";
 import { formatDateTime, formatSom, maskCard } from "@/lib/format";
 import { matchReply, replyText, type AutoReply } from "@/lib/auto-reply";
 import { cached } from "./memo.server";
 import { adminKeyboard } from "./notify.server";
-import { requestFlag, setUserBlocked } from "./requests.server";
+import { depositSplit, parseAccountId, parseAmount, parseUzCard, parseWithdrawCode, pickPayAmount } from "@/lib/exchange-rules";
+import {
+  clearState,
+  createBotDeposit,
+  createBotWithdraw,
+  getState,
+  listBookmakers,
+  minMax,
+  saveAccount,
+  savedAccounts,
+  setState,
+  takeState,
+  takenPayAmounts,
+  type StepData,
+} from "./exchange.server";
+import type { Bookmaker } from "./wallet-auth.server";
 
-type L = "uz" | "ru" | "en";
-const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : v === "en" ? "en" : "uz");
+type L = "uz" | "ru";
+const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : "uz");
 
-const MENU: Record<L, { deposit: string; withdraw: string; history: string; support: string; referral: string; faq: string; rates: string }> = {
+const MENU = {
   uz: {
-    deposit: "📥 Hisobni to'ldirish 📥",
-    withdraw: "📤 Hisobdan yechish 📤",
-    history: "To'lovlar tarixi ⏳",
-    support: "Aloqa markazi 👨‍💻",
-    referral: "Hamkorlik dasturi 👥",
-    faq: "Savol-javob ❓",
-    rates: "Joriy kurslar 💸",
+    deposit: "📮 Hisob to'ldirish",
+    accounts: "💳 Hisob raqamlar",
+    withdraw: "📤 Yechib olish",
+    ops: "📆 Amallar, 💰 Kurs-Zahira",
+    contact: "📲 Bog'lanish",
+    history: "📆 Amallar",
+    rates: "🏧 Kurs | 💰 Zahira",
+    back: "🔙 Bosh menyu",
+    cancel: "↪️ Bekor qilish",
   },
   ru: {
-    deposit: "📥 Пополнить счёт 📥",
-    withdraw: "📤 Вывести со счёта 📤",
-    history: "История платежей ⏳",
-    support: "Центр поддержки 👨‍💻",
-    referral: "Партнёрская программа 👥",
-    faq: "Вопросы и ответы ❓",
-    rates: "Текущие курсы 💸",
-  },
-  en: {
-    deposit: "📥 Deposit 📥",
-    withdraw: "📤 Withdraw 📤",
-    history: "Payment history ⏳",
-    support: "Support center 👨‍💻",
-    referral: "Partner program 👥",
-    faq: "Questions & answers ❓",
-    rates: "Current rates 💸",
+    deposit: "📮 Пополнить счёт",
+    accounts: "💳 Мои счета",
+    withdraw: "📤 Вывести",
+    ops: "📆 Операции, 💰 Курс-Резерв",
+    contact: "📲 Связаться",
+    history: "📆 Операции",
+    rates: "🏧 Курс | 💰 Резерв",
+    back: "🔙 Главное меню",
+    cancel: "↪️ Отмена",
   },
 };
+type MenuKey = keyof (typeof MENU)["uz"];
+
+const CARD_HINT_UZ = "👉 Faqat UZCARD yoki HUMO kartangizni qo'shing boshqa turdagi kartalar to'g'ri kelmaydi";
+const CARD_HINT_RU = "👉 Добавляйте только карту UZCARD или HUMO, другие карты не подходят";
 
 const TXT = {
   uz: {
-    welcome: (b: string) =>
-      `🥇 <b><i>${escapeHtml(b)} xizmatiga xush kelibsiz!</i></b> <i>Bu yerda biz eng muhim narsalarni taqdim etamiz: xavfsizlik, qulaylik va tezkorlik. To'lovlaringizni oson va ishonchli tarzda amalga oshirishni biz bilan boshlang!</i>`,
-    mainMenu: "<i>Asosiy menyu. Sizga qanday yordam bera olaman?</i>",
-    depositIntro: "Iltimos, video bilan tanishing va\n\nHisobni to'ldirish usulini tanlang:",
-    noBk: "Hozircha to'ldirish uchun bukmekerlar yo'q.",
-    withdraw:
-      "ℹ️ Mablag' yechish endi faqat Wallet platformasi orqali amalga oshiriladi.\n\nPlatformaga o'tish va mablag'ni yechish uchun quyidagi tugmani bosing.",
-    toWallet: "💳 Wallet'ga o'tish",
-    historyTitle: "Amaliyotlar tarixi:",
-    historyEmpty: "Sizda hali amaliyotlar tarixi mavjud emas",
-    support: "Xodimlarimiz bilan bog'lanish uchun, iltimos, quyidagi tugmani bosing.",
-    supportBtn: "Qo'llab-quvvatlash bilan bog'lanish",
-    supportMissing: "Qo'llab-quvvatlash hali sozlanmagan.",
-    backMenu: "Asosiy menyuga qaytish",
-    referral: (bal: number, link: string, p: string, earned: number) =>
-      `Balans: ${formatSom(bal)} UZS\n\nSizning referal havolangiz:\n${link}\n\nDo'stlaringizni taklif qiling va ularning har bir hisobi to'ldirilganda ${p}% bonus oling!\n\n🎁 Referal ro'yxatdan o'tish bonusi: ${formatSom(earned)} UZS\n\nℹ️ Mablag'ni yechish faqat Mini App orqali mavjud.`,
-    myRefs: "Mening referallarim",
-    shareBtn: "📤 Do'stlarga yuborish",
-    shareText: "Kassa 24/7 — bukmeker hisobini tez to'ldirish va yechish. Shu havola orqali qo'shiling:",
-    refsEmpty: "Sizda hali referallar yo'q.",
-    refsTitle: (n: number) => `👥 Sizning referallaringiz: ${n} ta`,
-    ratesDeposit: "📊 To'ldirish kurslari:",
-    ratesWithdraw: "📊 Yechish kurslari:",
-    blocked: "⛔ Hisobingiz bloklangan. Qo'llab-quvvatlashga murojaat qiling.",
-    askPhone:
-      "🔐 <b>Hisobingizni tasdiqlang</b>\n\nXavfsizlik uchun telefon raqamingiz kerak. Pastdagi <b>«📱 Raqamni yuborish»</b> tugmasini bosing.\n\n<i>Raqam yuborilmaguncha menyu ochilmaydi. Faqat o'zingizning raqamingiz qabul qilinadi.</i>",
-    phoneBtn: "📱 Raqamni yuborish",
-    notOwnContact: "⚠️ Bu boshqa odamning kontakti. Iltimos, pastdagi tugma orqali <b>o'zingizning</b> raqamingizni yuboring.",
-    phoneSaved: (p: string) => `✅ Raqamingiz tasdiqlandi: <code>${p}</code>`,
-    langSaved: "✅ Til: O'zbekcha",
-    faqTitle: "❓ <b>Ko'p beriladigan savollar</b>\n\nSavolni tanlang:",
-    faqEmpty: "Hozircha savol-javoblar qo'shilmagan. Qo'llab-quvvatlashga yozing.",
-    faqBack: "⬅️ Savollarga qaytish",
+    phoneAsk: "Telefon raqamingizni pastdagi tugmani bosib yuboring",
+    phoneBtn: "📱 Raqam yuborish",
+    notOwn: "⚠️ Bu boshqa odamning kontakti. Pastdagi tugma orqali o'zingizning raqamingizni yuboring.",
+    phoneSaved: "Telefon raqamingiz saqlandi botdan foydalanishingiz mumkin",
+    langSaved: "🇺🇿 O'zbek tili tanlandi",
+    mainMenu: "Bosh menyu",
+    blocked: "⛔ Hisobingiz bloklangan. Bog'lanish uchun qo'llab-quvvatlashga yozing.",
+    pick: "Tugmalardan kerakligini bosing",
+    depPick: "Hisobingizga pul solmoqchi bo'lgan Kontorani bosing:",
+    noDep: "Hozircha to'ldirish uchun kontoralar yo'q.",
+    depOff: "Hisob to'ldirish vaqtincha ishlamayapti. Birozdan keyin urinib ko'ring.",
+    askAccount: (bk: string) => `${bk} hisob raqamini kiriting:`,
+    badAccount: "ID raqam faqat raqamlardan iborat bo'lishi kerak (5–15 ta). Qaytadan kiriting:",
+    noAccount: "Bu hisob mavjud emas\nID raqamingizni kiring",
+    askCard: `ℹ️ Karta raqamingizni tanlang yoki hisob to'ldirgan kartangizni kiriting, yechib olishda hisob to'ldirgan kartangizni kiritishingiz tavsiya qilinadi\n\n${CARD_HINT_UZ}`,
+    badCard: `❗️ Karta raqami noto'g'ri. 16 xonali UZCARD (8600…) yoki HUMO (9860…) raqamini kiriting.\n\n${CARD_HINT_UZ}`,
+    askAmount: (bk: string, min: number, max: number) => `To'ldirish miqdorini ${bk}'da kiriting\nmin: ${formatSom(min)} UZS\nmax: ${formatSom(max)} UZS`,
+    badAmount: (min: number, max: number) => `❗️ Summa ${formatSom(min)} dan ${formatSom(max)} UZS gacha bo'lishi kerak. Qaytadan kiriting:`,
+    summary: (bk: string, acc: string, pay: number, recv: number, card: string, holder: string) =>
+      [
+        `🆔 <b>${bk}</b>: <code>${acc}</code>`,
+        `↗️ Berish: <b>${pay}</b> 🇺🇿 UZS`,
+        `↙️ Olish: <b>${recv}</b> 🇺🇿 UZS`,
+        "",
+        "Almashinuvni amalga oshirish uchun:",
+        `   👉 <b>${pay}</b> miqdoridagi so'mmani <code>${card}</code>${holder ? ` (${holder})` : ""} raqamiga to'lovni amalga oshiring.`,
+        "",
+        "To'lov qilganizdan so'ng <b>✅To'lov qildim</b> tugmasini bosing va o'tkazmangizni qabul qiling",
+      ].join("\n"),
+    paidBtn: "✅ To'lov qildim",
+    paidSent: (n: number) => `✅ So'rovingiz #${n} qabul qilindi.\nTo'lov tekshirilgach hisobingiz to'ldiriladi va sizga xabar keladi.`,
+    paidMark: (n: number) => `⏳ #${n} tekshirilmoqda`,
+    expired: "⏳ Bu so'rov eskirgan. Qaytadan «📮 Hisob to'ldirish» ni bosing.",
+    wdPick: "🔺 Pulingizni yechib olmoqchi bo'lgan kontorani tanlang:",
+    noWd: "Hozircha yechib olish uchun kontoralar yo'q.",
+    askCode: (bk: string, address: string) =>
+      `${bk} ilovasida «Pul yechish» → «Naqd pul» bo'limida kassani tanlang:\n📍 <b>${address}</b>\n\nBerilgan 4 belgili kodni yozing:`,
+    badCode: "❗️ Kod 4 ta harf yoki raqamdan iborat. Qaytadan kiriting:",
+    checking: "⏳ Tekshirilmoqda...",
+    wdDone: (n: number, amount: number, card: string) =>
+      `✅ So'rov #${n} qabul qilindi.\n💰 <b>${formatSom(amount)} UZS</b> kartangizga (${card}) tez orada o'tkaziladi.`,
+    wdPending: (n: number) => `✅ So'rov #${n} qabul qilindi.\nOperator tekshirib, pulni kartangizga o'tkazadi.`,
+    wdRejected: (msg: string) => `❌ Yechib bo'lmadi: ${msg}\nKodni tekshirib, qaytadan urinib ko'ring.`,
+    accountsTitle: "🧰 UZCARD & HUMO:",
+    cardAsk: `Karta raqamini yozing\nmasalan: 8600123456789000\n\n${CARD_HINT_UZ}`,
+    cardSaved: "💳 Karta raqamingiz saqlandi",
+    accAsk: (bk: string) => `${bk} hisobingiz raqamini kiriting:`,
+    accSaved: (bk: string) => `${bk} hamyon raqamingiz kiritildi`,
+    opsLast: (n: number) => `Sizning so'ngi ${n} almashuvingiz`,
+    sell: "📊<b>Sotish kursi</b>",
+    buy: "📊<b>Olish kursi</b>",
+    reserveBtn: "💰 Zahira",
+    reserveTitle: "💰 <b>Zahira</b>",
+    reserveOk: "mavjud",
+    contact: "Savollaringizni ushbu bot orqali jo`nating:",
+    chat: "💬 Chat",
+    channel: "👥 Rasmiy kanal",
+    contactMissing: "Aloqa hali sozlanmagan.",
     faqMore: "❓ Boshqa savollar",
-    pickMenu: "<i>Pastdagi menyudan kerakli bo'limni tanlang 👇</i>",
+    faqTitle: "❓ <b>Ko'p beriladigan savollar</b>\n\nSavolni tanlang:",
+    faqEmpty: "Hozircha savol-javoblar qo'shilmagan.",
+    faqBack: "⬅️ Savollarga qaytish",
     st: { pending: "⏳ kutilmoqda", approved: "✅ bajarildi", rejected: "❌ rad etildi" } as Record<string, string>,
-    ty: {
-      wallet_topup: "Hamyonni to'ldirish",
-      card_withdraw: "Kartaga yechish",
-      bk_deposit: "BK to'ldirish",
-      bk_withdraw: "BK dan chiqarish",
-      referral_bonus: "Referal bonus",
-      adjustment: "Balans tuzatish",
-    } as Record<string, string>,
+    ty: { bk_deposit: "📥 To'ldirish", bk_withdraw: "📤 Yechish", wallet_topup: "Hamyon", card_withdraw: "Kartaga" } as Record<string, string>,
   },
   ru: {
-    welcome: (b: string) =>
-      `🥇 <b><i>Добро пожаловать в ${escapeHtml(b)}!</i></b> <i>Здесь главное — безопасность, удобство и скорость. Начните проводить платежи легко и надёжно вместе с нами!</i>`,
-    mainMenu: "<i>Главное меню. Чем могу помочь?</i>",
-    depositIntro: "Пожалуйста, посмотрите видео и\n\nвыберите способ пополнения:",
-    noBk: "Пока нет букмекеров для пополнения.",
-    withdraw:
-      "ℹ️ Вывод средств теперь доступен только через платформу Wallet.\n\nНажмите кнопку ниже, чтобы перейти и вывести средства.",
-    toWallet: "💳 Перейти в Wallet",
-    historyTitle: "История операций:",
-    historyEmpty: "У вас пока нет истории операций",
-    support: "Чтобы связаться с нашими сотрудниками, нажмите кнопку ниже.",
-    supportBtn: "Связаться с поддержкой",
-    supportMissing: "Поддержка ещё не настроена.",
-    backMenu: "Вернуться в главное меню",
-    referral: (bal: number, link: string, p: string, earned: number) =>
-      `Баланс: ${formatSom(bal)} UZS\n\nВаша реферальная ссылка:\n${link}\n\nПриглашайте друзей и получайте ${p}% бонус с каждого их пополнения!\n\n🎁 Реферальный бонус: ${formatSom(earned)} UZS\n\nℹ️ Вывод средств доступен только через Mini App.`,
-    myRefs: "Мои рефералы",
-    shareBtn: "📤 Отправить друзьям",
-    shareText: "Kassa 24/7 — быстрое пополнение и вывод в букмекерах. Присоединяйтесь по ссылке:",
-    refsEmpty: "У вас пока нет рефералов.",
-    refsTitle: (n: number) => `👥 Ваши рефералы: ${n}`,
-    ratesDeposit: "📊 Курсы пополнения:",
-    ratesWithdraw: "📊 Курсы вывода:",
-    blocked: "⛔ Ваш аккаунт заблокирован. Обратитесь в поддержку.",
-    askPhone:
-      "🔐 <b>Подтвердите аккаунт</b>\n\nДля безопасности нужен ваш номер телефона. Нажмите кнопку <b>«📱 Отправить номер»</b> ниже.\n\n<i>Меню откроется только после отправки номера. Принимается только ваш собственный номер.</i>",
+    phoneAsk: "Отправьте свой номер телефона кнопкой ниже",
     phoneBtn: "📱 Отправить номер",
-    notOwnContact: "⚠️ Это контакт другого человека. Отправьте, пожалуйста, <b>свой</b> номер кнопкой ниже.",
-    phoneSaved: (p: string) => `✅ Ваш номер подтверждён: <code>${p}</code>`,
-    langSaved: "✅ Язык: Русский",
-    faqTitle: "❓ <b>Частые вопросы</b>\n\nВыберите вопрос:",
-    faqEmpty: "Вопросы пока не добавлены. Напишите в поддержку.",
-    faqBack: "⬅️ К вопросам",
+    notOwn: "⚠️ Это контакт другого человека. Отправьте свой номер кнопкой ниже.",
+    phoneSaved: "Ваш номер сохранён, можете пользоваться ботом",
+    langSaved: "🇷🇺 Выбран русский язык",
+    mainMenu: "Главное меню",
+    blocked: "⛔ Ваш аккаунт заблокирован. Напишите в поддержку.",
+    pick: "Выберите нужную кнопку",
+    depPick: "Выберите контору, счёт которой хотите пополнить:",
+    noDep: "Пока нет контор для пополнения.",
+    depOff: "Пополнение временно не работает. Попробуйте чуть позже.",
+    askAccount: (bk: string) => `Введите номер счёта ${bk}:`,
+    badAccount: "ID должен состоять только из цифр (5–15). Введите ещё раз:",
+    noAccount: "Такого счёта нет\nВведите ваш ID",
+    askCard: `ℹ️ Выберите номер карты или введите карту, с которой пополняете. При выводе рекомендуется указывать ту же карту\n\n${CARD_HINT_RU}`,
+    badCard: `❗️ Неверный номер карты. Введите 16-значный номер UZCARD (8600…) или HUMO (9860…).\n\n${CARD_HINT_RU}`,
+    askAmount: (bk: string, min: number, max: number) => `Введите сумму пополнения ${bk}\nmin: ${formatSom(min)} UZS\nmax: ${formatSom(max)} UZS`,
+    badAmount: (min: number, max: number) => `❗️ Сумма должна быть от ${formatSom(min)} до ${formatSom(max)} UZS. Введите ещё раз:`,
+    summary: (bk: string, acc: string, pay: number, recv: number, card: string, holder: string) =>
+      [
+        `🆔 <b>${bk}</b>: <code>${acc}</code>`,
+        `↗️ Отдаёте: <b>${pay}</b> 🇺🇿 UZS`,
+        `↙️ Получаете: <b>${recv}</b> 🇺🇿 UZS`,
+        "",
+        "Чтобы выполнить обмен:",
+        `   👉 переведите <b>${pay}</b> сум на карту <code>${card}</code>${holder ? ` (${holder})` : ""}.`,
+        "",
+        "После оплаты нажмите <b>✅Я оплатил</b>",
+      ].join("\n"),
+    paidBtn: "✅ Я оплатил",
+    paidSent: (n: number) => `✅ Заявка #${n} принята.\nПосле проверки оплаты счёт будет пополнен, придёт сообщение.`,
+    paidMark: (n: number) => `⏳ #${n} на проверке`,
+    expired: "⏳ Эта заявка устарела. Нажмите «📮 Пополнить счёт» ещё раз.",
+    wdPick: "🔺 Выберите контору, из которой хотите вывести деньги:",
+    noWd: "Пока нет контор для вывода.",
+    askCode: (bk: string, address: string) =>
+      `В приложении ${bk} откройте «Вывод» → «Наличные» и выберите кассу:\n📍 <b>${address}</b>\n\nНапишите полученный 4-значный код:`,
+    badCode: "❗️ Код — 4 буквы или цифры. Введите ещё раз:",
+    checking: "⏳ Проверяем...",
+    wdDone: (n: number, amount: number, card: string) =>
+      `✅ Заявка #${n} принята.\n💰 <b>${formatSom(amount)} UZS</b> скоро поступят на вашу карту (${card}).`,
+    wdPending: (n: number) => `✅ Заявка #${n} принята.\nОператор проверит и переведёт деньги на вашу карту.`,
+    wdRejected: (msg: string) => `❌ Вывод не удался: ${msg}\nПроверьте код и попробуйте ещё раз.`,
+    accountsTitle: "🧰 UZCARD & HUMO:",
+    cardAsk: `Напишите номер карты\nнапример: 8600123456789000\n\n${CARD_HINT_RU}`,
+    cardSaved: "💳 Номер карты сохранён",
+    accAsk: (bk: string) => `Введите номер вашего счёта ${bk}:`,
+    accSaved: (bk: string) => `Номер счёта ${bk} сохранён`,
+    opsLast: (n: number) => `Ваши последние ${n} обменов`,
+    sell: "📊<b>Курс продажи</b>",
+    buy: "📊<b>Курс покупки</b>",
+    reserveBtn: "💰 Резерв",
+    reserveTitle: "💰 <b>Резерв</b>",
+    reserveOk: "есть",
+    contact: "Отправляйте вопросы через этого бота:",
+    chat: "💬 Чат",
+    channel: "👥 Официальный канал",
+    contactMissing: "Связь ещё не настроена.",
     faqMore: "❓ Другие вопросы",
-    pickMenu: "<i>Выберите нужный раздел в меню ниже 👇</i>",
+    faqTitle: "❓ <b>Частые вопросы</b>\n\nВыберите вопрос:",
+    faqEmpty: "Вопросы пока не добавлены.",
+    faqBack: "⬅️ К вопросам",
     st: { pending: "⏳ в ожидании", approved: "✅ выполнено", rejected: "❌ отклонено" } as Record<string, string>,
-    ty: {
-      wallet_topup: "Пополнение кошелька",
-      card_withdraw: "Вывод на карту",
-      bk_deposit: "Пополнение БК",
-      bk_withdraw: "Вывод из БК",
-      referral_bonus: "Реферальный бонус",
-      adjustment: "Корректировка",
-    } as Record<string, string>,
-  },
-  en: {
-    welcome: (b: string) =>
-      `🥇 <b><i>Welcome to ${escapeHtml(b)}!</i></b> <i>What matters most here: safety, convenience and speed. Start making your payments easily and reliably with us!</i>`,
-    mainMenu: "<i>Main menu. How can I help you?</i>",
-    depositIntro: "Please watch the video and\n\nchoose how to deposit:",
-    noBk: "No bookmakers available for deposits yet.",
-    withdraw: "ℹ️ Withdrawals are now made only through the Wallet.\n\nTap the button below to open it and withdraw.",
-    toWallet: "💳 Open Wallet",
-    historyTitle: "Transaction history:",
-    historyEmpty: "You have no transactions yet",
-    support: "To contact our team, please tap the button below.",
-    supportBtn: "Contact support",
-    supportMissing: "Support is not set up yet.",
-    backMenu: "Back to main menu",
-    referral: (bal: number, link: string, p: string, earned: number) =>
-      `Balance: ${formatSom(bal)} UZS\n\nYour referral link:\n${link}\n\nInvite friends and get ${p}% of each of their deposits!\n\n🎁 Referral bonus earned: ${formatSom(earned)} UZS\n\nℹ️ Withdrawals are available only in the Mini App.`,
-    myRefs: "My referrals",
-    shareBtn: "📤 Send to friends",
-    shareText: "Kassa 24/7 — fast bookmaker deposits and withdrawals. Join with this link:",
-    refsEmpty: "You have no referrals yet.",
-    refsTitle: (n: number) => `👥 Your referrals: ${n}`,
-    ratesDeposit: "📊 Deposit rates:",
-    ratesWithdraw: "📊 Withdrawal rates:",
-    blocked: "⛔ Your account is blocked. Please contact support.",
-    askPhone:
-      "🔐 <b>Verify your account</b>\n\nFor safety we need your phone number. Tap <b>«📱 Share number»</b> below.\n\n<i>The menu opens only after you share it. Only your own number is accepted.</i>",
-    phoneBtn: "📱 Share number",
-    notOwnContact: "⚠️ That is someone else's contact. Please share <b>your own</b> number with the button below.",
-    phoneSaved: (p: string) => `✅ Your number is verified: <code>${p}</code>`,
-    langSaved: "✅ Language: English",
-    faqTitle: "❓ <b>Frequently asked questions</b>\n\nChoose a question:",
-    faqEmpty: "No questions added yet. Please write to support.",
-    faqBack: "⬅️ Back to questions",
-    faqMore: "❓ Other questions",
-    pickMenu: "<i>Choose a section in the menu below 👇</i>",
-    st: { pending: "⏳ pending", approved: "✅ completed", rejected: "❌ rejected" } as Record<string, string>,
-    ty: {
-      wallet_topup: "Wallet top-up",
-      card_withdraw: "Card withdrawal",
-      bk_deposit: "Bookmaker deposit",
-      bk_withdraw: "Bookmaker withdrawal",
-      referral_bonus: "Referral bonus",
-      adjustment: "Balance adjustment",
-    } as Record<string, string>,
+    ty: { bk_deposit: "📥 Пополнение", bk_withdraw: "📤 Вывод", wallet_topup: "Кошелёк", card_withdraw: "На карту" } as Record<string, string>,
   },
 };
 
 const ADMIN_BUTTON = "🛠 Admin panel";
 
+// Bot API 9.4+: `style` colours a button (older clients just ignore it).
 function mainKeyboard(l: L, admin = false) {
   const m = MENU[l];
   return {
     keyboard: [
-      [{ text: m.deposit }, { text: m.withdraw }],
-      [{ text: m.history }, { text: m.support }],
-      [{ text: m.referral }, { text: m.faq }],
+      [{ text: m.deposit, style: "success" }],
+      [{ text: m.accounts }, { text: m.withdraw, style: "primary" }],
+      [{ text: m.ops }, { text: m.contact }],
       ...(admin ? [[{ text: ADMIN_BUTTON }]] : []),
     ],
     resize_keyboard: true,
@@ -207,71 +219,56 @@ function mainKeyboard(l: L, admin = false) {
   };
 }
 
-function matchMenu(text: string): keyof (typeof MENU)["uz"] | null {
-  for (const l of ["uz", "ru", "en"] as L[]) {
-    for (const [k, v] of Object.entries(MENU[l])) if (v === text) return k as keyof (typeof MENU)["uz"];
+function opsKeyboard(l: L) {
+  const m = MENU[l];
+  return { keyboard: [[{ text: m.history }, { text: m.rates }], [{ text: m.back }]], resize_keyboard: true, is_persistent: true };
+}
+
+/** Bottom keyboard during a step: the saved value (one tap) and "Cancel". */
+function stepKeyboard(l: L, saved?: string | null) {
+  return {
+    keyboard: [...(saved ? [[{ text: saved }]] : []), [{ text: MENU[l].cancel }]],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+}
+
+function matchMenu(text: string): MenuKey | null {
+  for (const l of ["uz", "ru"] as L[]) {
+    for (const [k, v] of Object.entries(MENU[l])) if (v === text) return k as MenuKey;
   }
   return null;
 }
 
-function supportUrl(s: Settings) {
-  const u = s.support_username.replace(/^@/, "").trim();
-  return u ? `https://t.me/${u}` : null;
-}
+const say = (chatId: number, text: string, reply_markup?: unknown) =>
+  tg("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", ...(reply_markup ? { reply_markup } : {}) });
 
-async function sendSlotVideo(chatId: number, slot: string, caption: string, replyMarkup?: unknown) {
-  const v = await maybeOne(
-    sql<{ storage_path: string | null; tg_file_id: string | null }[]>`
-      select storage_path, tg_file_id from public.videos where slot = ${slot}`,
-  );
-  if (v?.storage_path || v?.tg_file_id) {
-    try {
-      const source = v.tg_file_id ?? (await signedUrl("media", v.storage_path, 60 * 60));
-      if (source) {
-        const msg = await tg("sendVideo", {
-          chat_id: chatId,
-          video: source,
-          caption,
-          parse_mode: "HTML",
-          supports_streaming: true,
-          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
-        });
-        const fileId = msg?.video?.file_id ?? msg?.document?.file_id;
-        if (fileId && fileId !== v.tg_file_id)
-          await sql`update public.videos set tg_file_id = ${fileId} where slot = ${slot}`;
-        return;
-      }
-    } catch (e) {
-      console.error("sendVideo failed, falling back to text", e);
-    }
-  }
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: caption,
-    parse_mode: "HTML",
-    ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
-  });
-}
-
-async function sendWelcome(chatId: number, l: L, s: Settings) {
-  await tg("sendMessage", { chat_id: chatId, text: TXT[l].welcome(s.brand_name || "Kassa 24/7"), parse_mode: "HTML" });
-  await sendMainMenu(chatId, l, s);
-}
-
-async function sendMainMenu(chatId: number, l: L, s?: Settings) {
+async function sendMainMenu(chatId: number, l: L, s: Settings, text = TXT[l].mainMenu) {
   const admin = chatId > 0 && (await isTelegramAdmin(chatId, s).catch(() => false));
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: TXT[l].mainMenu,
-    parse_mode: "HTML",
-    reply_markup: mainKeyboard(l, admin),
-  });
+  await say(chatId, text, mainKeyboard(l, admin));
 }
 
-/** Web App links must be https; behind Railway's proxy the request origin can arrive as http. */
+/** Rows of `n` buttons. */
+function rows<T>(items: T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += n) out.push(items.slice(i, i + n));
+  return out;
+}
+
+function tgLink(v: string) {
+  const u = v.trim();
+  if (!u) return null;
+  if (/^https?:\/\//.test(u)) return u;
+  return `https://t.me/${u.replace(/^@/, "").replace(/^t\.me\//, "")}`;
+}
+
+/** Links that Telegram opens must be https; behind Railway's proxy the request origin can arrive as http. */
 function httpsBase(s: Settings, fallbackOrigin: string) {
   return publicBase(s, fallbackOrigin).replace(/^http:\/\/(?!localhost|127\.0\.0\.1)/, "https://");
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Update = any;
 
 // Admin home in the chat: what needs attention + buttons that open the panel already signed in.
 async function sendAdminPanel(chatId: number, s: Settings, base: string) {
@@ -281,18 +278,12 @@ async function sendAdminPanel(chatId: number, s: Settings, base: string) {
   else
     lines.push(
       "",
-      "⚠️ <b>To'ldirish kartasi kiritilmagan</b> — mijozlar hamyonni to'ldira olmaydi.",
+      "⚠️ <b>To'ldirish kartasi kiritilmagan</b> — mijozlar hisob to'ldira olmaydi.",
       "Kiritish: <code>/karta 8600123412341234 ISM FAMILIYA</code>",
     );
   if (!(await loadCashdeskCreds("linebet")))
     lines.push("", "⚠️ Linebet API kiritilmagan — so'rovlarni qo'lda tasdiqlaysiz. Kiritish: panel → Sozlamalar → Linebet API.");
-  lines.push(
-    "",
-    s.selfie_channel_id.trim()
-      ? "🤳 Selfi kanali: ✅ ulangan"
-      : "⚠️ <b>Selfi kanali ulanmagan</b> — yuz suratlari yuborilmayapti. Ulash: /kanal",
-  );
-  lines.push("", "Barcha boshqaruv (so'rovlar, foydalanuvchilar, balans, bukmekerlar, videolar, sozlamalar) panelda:");
+  lines.push("", "Barcha boshqaruv (so'rovlar, foydalanuvchilar, bukmekerlar, sozlamalar) panelda:");
   await tg("sendMessage", {
     chat_id: chatId,
     text: lines.join("\n"),
@@ -304,7 +295,6 @@ async function sendAdminPanel(chatId: number, s: Settings, base: string) {
           { text: "📥 So'rovlar", web_app: { url: `${base}/admin/requests` } },
           { text: "⚙️ Sozlamalar", web_app: { url: `${base}/admin/settings` } },
         ],
-        [{ text: "🤳 Selfi kanali", callback_data: "adm:channel" }],
       ],
     },
   });
@@ -357,7 +347,7 @@ async function setCardFromChat(chatId: number, text: string) {
   await saveSettings(holder ? { card_number: card, card_holder: holder } : { card_number: card });
   await tg("sendMessage", {
     chat_id: chatId,
-    text: `✅ To'ldirish kartasi saqlandi: <code>${maskCard(card)}</code> ${escapeHtml(holder)}\nEndi mijozlar hamyonni to'ldira oladi.`,
+    text: `✅ To'ldirish kartasi saqlandi: <code>${maskCard(card)}</code> ${escapeHtml(holder)}\nEndi mijozlar hisob to'ldira oladi.`,
     parse_mode: "HTML",
   });
 }
@@ -399,14 +389,15 @@ async function handleAdminDecision(cq: Update, s: Settings) {
         ),
       ),
     );
-    return answer(act === "block" ? `🚫 ${userId} bloklandi — bot va hamyon unga yopiq` : `✅ ${userId} blokdan chiqarildi`, true);
+    return answer(act === "block" ? `🚫 ${userId} bloklandi — bot unga yopiq` : `✅ ${userId} blokdan chiqarildi`, true);
   }
 
   if (!id || !TX_ID.test(id) || !["ok", "ok2", "no", "back"].includes(act ?? "")) return answer("Noto'g'ri tugma", true);
 
   if (act === "back") {
-    const tx = await maybeOne(sql<{ user_id: number; status: string; type: string; amount: number }[]>`
-      select user_id::float8 as user_id, status, type, amount::float8 as amount from public.transactions where id = ${id}`);
+    const tx = await maybeOne(sql<{ user_id: number; status: string; type: string; amount: number; source: string | null }[]>`
+      select user_id::float8 as user_id, status, type, amount::float8 as amount, to_jsonb(t) ->> 'source' as source
+      from public.transactions t where id = ${id}`);
     if (tx) await setButtons(adminKeyboard({ id, ...tx }, chatId ?? 0, publicBase(s)));
     return answer("↩️");
   }
@@ -433,31 +424,13 @@ async function handleAdminDecision(cq: Update, s: Settings) {
     if (msg.includes("already_processed")) return answer("Bu so'rov allaqachon ko'rib chiqilgan", true);
     if (msg.includes("insufficient")) return answer("Mijoz balansida pul yetarli emas", true);
     if (msg.includes("amount_required")) return answer("Bu so'rovda summani admin panelda kiriting", true);
+    if (msg.includes("in_progress")) return answer("⏳ Bukmekerga yuborilmoqda — biroz kuting", true);
+    if (msg.includes("bk_rejected")) return answer(`❌ Bukmeker rad etdi: ${msg.replace(/^.*bk_rejected:\s*/, "")}`.slice(0, 190), true);
+    if (msg.includes("bk_unknown"))
+      return answer("⚠️ Bukmeker aniq javob bermadi. Kassani tekshiring: pul tushgan bo'lsa yana ✅ bosing (qayta yuborilmaydi).", true);
     console.error("admin decision failed", e);
     return answer(`Xatolik: ${msg.slice(0, 150)}`, true);
   }
-}
-
-// ---------- Questions & answers (admin panel → Avto-javoblar) ----------
-function loadReplies(): Promise<AutoReply[]> {
-  return cached("auto-replies", 30_000, async () => {
-    const rows = await sql<AutoReply[]>`
-      select id::text as id, keywords, question_uz, answer_uz, question_ru, answer_ru, question_en, answer_en,
-        sort_order, is_active
-      from public.auto_replies where is_active order by sort_order, created_at`;
-    return [...rows];
-  });
-}
-
-function faqList(l: L, replies: AutoReply[]) {
-  const t = TXT[l];
-  if (!replies.length) return { text: t.faqEmpty, markup: { inline_keyboard: [] as unknown[][] } };
-  return {
-    text: t.faqTitle,
-    markup: {
-      inline_keyboard: replies.slice(0, 30).map((r) => [{ text: replyText(r, l).q.slice(0, 60), callback_data: `faq:${r.id}` }]),
-    },
-  };
 }
 
 /** Changes the message the button belongs to instead of sending a new one — nothing jumps or blinks. */
@@ -477,44 +450,6 @@ async function editInPlace(cq: Update, text: string, markup: unknown) {
   }
   await tg("sendMessage", { chat_id: chatId ?? cq.from.id, text, parse_mode: "HTML", reply_markup: markup });
 }
-
-async function sendLanguagePicker(chatId: number) {
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: "<b><i>Tilni tanlang\nВыберите язык\nChoose a language</i></b>",
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "🇺🇿 O'zbek tili", callback_data: "lang:uz" }],
-        [{ text: "🇷🇺 Русский", callback_data: "lang:ru" }],
-        [{ text: "🇬🇧 English", callback_data: "lang:en" }],
-      ],
-    },
-  });
-}
-
-// Phone gate: a one-button keyboard that shares the user's own contact. The menu stays closed until then.
-async function sendPhoneRequest(chatId: number, l: L, base: string) {
-  const markup = {
-    keyboard: [[{ text: TXT[l].phoneBtn, request_contact: true }]],
-    resize_keyboard: true,
-    is_persistent: true,
-  };
-  try {
-    await tg("sendPhoto", {
-      chat_id: chatId,
-      photo: `${base}/images/phone-verify.jpg`,
-      caption: TXT[l].askPhone,
-      parse_mode: "HTML",
-      reply_markup: markup,
-    });
-  } catch {
-    await tg("sendMessage", { chat_id: chatId, text: TXT[l].askPhone, parse_mode: "HTML", reply_markup: markup });
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Update = any;
 
 // Saves the private channel for withdrawal selfies and checks the bot can post there.
 async function linkSelfieChannel(ch: ChannelRef, adminChatId: number) {
@@ -541,11 +476,292 @@ async function linkSelfieChannel(ch: ChannelRef, adminChatId: number) {
   }).catch(() => undefined);
 }
 
+
+async function sendLanguagePicker(chatId: number) {
+  await say(chatId, "Tilni tanlang / Выбрать язык", {
+    inline_keyboard: [[
+      { text: "🇺🇿 O'zbek", callback_data: "lang:uz" },
+      { text: "🇷🇺 Русский", callback_data: "lang:ru" },
+    ]],
+  });
+}
+
+async function sendPhoneRequest(chatId: number, l: L) {
+  await say(chatId, TXT[l].phoneAsk, {
+    keyboard: [[{ text: TXT[l].phoneBtn, request_contact: true }]],
+    resize_keyboard: true,
+    is_persistent: true,
+  });
+}
+
+// ---------- Questions & answers (admin panel → Avto-javoblar) ----------
+function loadReplies(): Promise<AutoReply[]> {
+  return cached("auto-replies", 30_000, async () => {
+    const r = await sql<AutoReply[]>`
+      select id::text as id, keywords, question_uz, answer_uz, question_ru, answer_ru, question_en, answer_en,
+        sort_order, is_active
+      from public.auto_replies where is_active order by sort_order, created_at`;
+    return [...r];
+  });
+}
+
+function faqList(l: L, replies: AutoReply[]) {
+  const t = TXT[l];
+  if (!replies.length) return { text: t.faqEmpty, markup: { inline_keyboard: [] as unknown[][] } };
+  return {
+    text: t.faqTitle,
+    markup: { inline_keyboard: replies.slice(0, 30).map((r) => [{ text: replyText(r, l).q.slice(0, 60), callback_data: `faq:${r.id}` }]) },
+  };
+}
+
+// ---------- Customer screens ----------
+const bkList = (s: Settings) => cached("bot-bookmakers", 15_000, listBookmakers).then((b) => (void s, b));
+
+async function findBk(id: string | undefined, s: Settings): Promise<Bookmaker | null> {
+  if (!id) return null;
+  return (await bkList(s)).find((b) => b.id === id) ?? null;
+}
+
+async function showDeposit(chatId: number, l: L, s: Settings) {
+  const bks = (await bkList(s)).filter((b) => b.deposit_enabled);
+  if (!bks.length) return say(chatId, TXT[l].noDep);
+  if (!s.card_number.trim()) return say(chatId, TXT[l].depOff);
+  await say(chatId, TXT[l].depPick, {
+    inline_keyboard: rows(bks.map((b) => ({ text: `🚩 ${b.name}`, callback_data: `dep:${b.id}` })), 2),
+  });
+}
+
+async function showWithdraw(chatId: number, l: L, s: Settings) {
+  const bks = (await bkList(s)).filter((b) => b.withdraw_enabled);
+  if (!bks.length) return say(chatId, TXT[l].noWd);
+  const list = bks.map((b) => `<blockquote><b>${escapeHtml(b.name)}</b> - ${escapeHtml(b.address)}</blockquote>`).join("");
+  await say(chatId, `${list}\n${TXT[l].wdPick}`, {
+    inline_keyboard: rows(bks.map((b) => ({ text: `🔺 ${b.name}`, callback_data: `wd:${b.id}` })), 2),
+  });
+}
+
+async function showAccounts(chatId: number, l: L, s: Settings, userId: number) {
+  const [bks, saved] = await Promise.all([bkList(s), savedAccounts(userId)]);
+  const lines = [
+    `${TXT[l].accountsTitle} ${saved["card"] ? `<code>${saved["card"]}</code>` : ""}`,
+    ...bks.map((b) => `<blockquote>📌 ${escapeHtml(b.name)}:   ${saved[b.id] ? `<code>${escapeHtml(saved[b.id])}</code>` : ""}</blockquote>`),
+  ];
+  await say(chatId, lines.join(""), {
+    inline_keyboard: [
+      [{ text: "UZCARD / HUMO", callback_data: "acc:card" }],
+      ...rows(bks.map((b) => ({ text: b.name, callback_data: `acc:${b.id}` })), 3),
+    ],
+  });
+}
+
+async function showHistory(chatId: number, l: L, userId: number) {
+  const txs = await sql<
+    { number: number; type: string; status: string; amount: number; account_id: string | null; bk: string | null; created_at: string }[]
+  >`
+    select t.number::float8 as number, t.type, t.status, t.amount::float8 as amount, t.account_id,
+      (select b.name from public.bookmakers b where b.id = t.bookmaker_id) as bk, ${ts("t.created_at")} as created_at
+    from public.transactions t
+    where t.user_id = ${userId} and t.type in ('bk_deposit', 'bk_withdraw', 'wallet_topup', 'card_withdraw')
+    order by t.created_at desc limit 10`;
+  const t = TXT[l];
+  const lines = txs.map(
+    (x) =>
+      `<blockquote>#${x.number} ${t.ty[x.type] ?? x.type}${x.bk ? ` · ${escapeHtml(x.bk)}` : ""}${x.account_id ? ` · ${escapeHtml(x.account_id)}` : ""}\n💰 ${formatSom(x.amount)} UZS · ${t.st[x.status] ?? x.status}\n🕒 ${formatDateTime(x.created_at)}</blockquote>`,
+  );
+  await say(chatId, [t.opsLast(txs.length), ...lines].join("\n"));
+}
+
+async function showRates(chatId: number, l: L, s: Settings) {
+  const bks = await bkList(s);
+  const t = TXT[l];
+  const line = (b: Bookmaker, fee: number) => `1 ${escapeHtml(b.name)} = 1 UZS${fee > 0 ? ` (−${fee}%)` : ""}`;
+  const dep = bks.filter((b) => b.deposit_enabled).map((b) => line(b, Number(b.deposit_fee_percent)));
+  const wd = bks.filter((b) => b.withdraw_enabled).map((b) => line(b, Number(b.withdraw_fee_percent)));
+  await say(chatId, `${t.sell}\n${dep.join("\n") || "—"}\n\n${t.buy}\n${wd.join("\n") || "—"}`, {
+    inline_keyboard: [[{ text: t.reserveBtn, callback_data: "reserve" }]],
+  });
+}
+
+/** Money the cashdesk can still put on accounts, per bookmaker (checked at most once a minute). */
+async function reserveText(l: L, s: Settings) {
+  const bks = (await bkList(s)).filter((b) => b.deposit_enabled);
+  const lines = await Promise.all(
+    bks.map(async (b) => {
+      const v = await cached(`reserve:${b.id}`, 60_000, async () => {
+        const creds = await loadCashdeskCreds(b.id);
+        if (!creds) return null;
+        const r = await cashdeskBalance(creds);
+        return r.ok ? Math.max(0, Math.floor(r.limit || r.balance)) : null;
+      });
+      return `<blockquote>${escapeHtml(b.name)}: <b>${v === null ? TXT[l].reserveOk : `${formatSom(v)} UZS`}</b></blockquote>`;
+    }),
+  );
+  return [TXT[l].reserveTitle, ...lines].join("\n");
+}
+
+async function showContact(chatId: number, l: L, s: Settings) {
+  const chat = tgLink(s.support_username);
+  const channel = tgLink(s.channel_username);
+  const kb = [...(chat ? [[{ text: TXT[l].chat, url: chat }]] : []), ...(channel ? [[{ text: TXT[l].channel, url: channel }]] : [])];
+  await say(chatId, kb.length ? TXT[l].contact : TXT[l].contactMissing, kb.length ? { inline_keyboard: kb } : undefined);
+}
+
+/** null = no cashdesk or no clear answer (let the user go on); false = the bookmaker says no such account. */
+async function accountExists(bkId: string, account: string): Promise<boolean | null> {
+  const creds = await loadCashdeskCreds(bkId);
+  if (!creds) return null;
+  const r = await cashdeskFindUser(creds, account);
+  return r ? r.found : null;
+}
+
+// ---------- Step input ----------
+async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: { step: string; data: StepData }, text: string) {
+  const t = TXT[l];
+  const d = st.data;
+  const bk = await findBk(d.bk, s);
+  if (st.step !== "set_card" && !bk) {
+    await clearState(user.id);
+    return sendMainMenu(chatId, l, s);
+  }
+  const bkName = escapeHtml(bk?.name ?? "");
+
+  if (st.step === "dep_account" || st.step === "wd_account" || st.step === "set_acc") {
+    const acc = parseAccountId(text);
+    if (!acc) return say(chatId, t.badAccount);
+    if ((await accountExists(bk!.id, acc)) === false) return say(chatId, t.noAccount);
+    await saveAccount(user.id, bk!.id, acc);
+    if (st.step === "set_acc") {
+      await clearState(user.id);
+      return sendMainMenu(chatId, l, s, t.accSaved(bkName));
+    }
+    if (st.step === "wd_account") {
+      await setState(user.id, "wd_code", { ...d, account: acc });
+      return say(chatId, t.askCode(bkName, escapeHtml(bk!.address)), stepKeyboard(l));
+    }
+    await setState(user.id, "dep_card", { ...d, account: acc });
+    const saved = await savedAccounts(user.id);
+    return say(chatId, t.askCard, stepKeyboard(l, saved["card"]));
+  }
+
+  if (st.step === "dep_card" || st.step === "wd_card" || st.step === "set_card") {
+    const card = parseUzCard(text);
+    if (!card) return say(chatId, t.badCard);
+    await saveAccount(user.id, "card", card);
+    if (st.step === "set_card") {
+      await clearState(user.id);
+      return sendMainMenu(chatId, l, s, t.cardSaved);
+    }
+    if (st.step === "wd_card") {
+      await setState(user.id, "wd_account", { ...d, card });
+      const saved = await savedAccounts(user.id);
+      return say(chatId, t.askAccount(bkName), stepKeyboard(l, saved[bk!.id]));
+    }
+    await setState(user.id, "dep_amount", { ...d, card });
+    const { min, max } = minMax(bk!, s);
+    return say(chatId, t.askAmount(bkName, min, max), stepKeyboard(l));
+  }
+
+  if (st.step === "dep_amount") {
+    const { min, max } = minMax(bk!, s);
+    const amount = parseAmount(text);
+    if (!amount || amount < min || amount > max) return say(chatId, t.badAmount(min, max));
+    if (!s.card_number.trim()) {
+      await clearState(user.id);
+      return sendMainMenu(chatId, l, s, t.depOff);
+    }
+    const pay = pickPayAmount(amount, await takenPayAmounts(amount));
+    const { bonus, fee, receive } = depositSplit(pay, num(s.deposit_bonus_percent, 0), Number(bk!.deposit_fee_percent));
+    await setState(user.id, "dep_confirm", { ...d, amount, pay, bonus, fee });
+    return say(
+      chatId,
+      t.summary(bkName, escapeHtml(d.account ?? ""), pay, receive, escapeHtml(s.card_number.replace(/\D/g, "")), escapeHtml(s.card_holder)),
+      { inline_keyboard: [[{ text: t.paidBtn, callback_data: "dep:paid", style: "success" }]] },
+    );
+  }
+
+  if (st.step === "dep_confirm") {
+    // Waiting for the "paid" button; typed text just repeats the hint.
+    return say(chatId, l === "ru" ? "Нажмите «✅ Я оплатил» под сообщением выше или «↪️ Отмена»." : "Yuqoridagi «✅ To'lov qildim» tugmasini bosing yoki «↪️ Bekor qilish».");
+  }
+
+  if (st.step === "wd_code") {
+    const code = parseWithdrawCode(text);
+    if (!code) return say(chatId, t.badCode);
+    // Claim the step first so a repeated message never pays out twice.
+    const data = await takeState(user.id, "wd_code");
+    if (!data?.account || !data.card) return sendMainMenu(chatId, l, s);
+    await say(chatId, t.checking);
+    const r = await createBotWithdraw(user.id, bk!, { account: data.account, card: data.card, code }, s);
+    if (r.kind === "rejected") return sendMainMenu(chatId, l, s, t.wdRejected(escapeHtml(r.message)));
+    if (r.kind === "done") return sendMainMenu(chatId, l, s, t.wdDone(r.tx.number, r.send, maskCard(data.card)));
+    return sendMainMenu(chatId, l, s, t.wdPending(r.tx.number));
+  }
+}
+
+// ---------- Customer buttons under messages ----------
+async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Settings, user: TgUser, data: string) {
+  const t = TXT[l];
+  if (data === "noop") return;
+  if (data === "reserve") return say(chatId, await reserveText(l, s));
+  if (data === "faq:list") {
+    const f = faqList(l, await loadReplies());
+    return editInPlace(cq, f.text, f.markup);
+  }
+  if (data.startsWith("faq:")) {
+    const r = (await loadReplies()).find((x) => x.id === data.slice(4));
+    if (!r) {
+      const f = faqList(l, await loadReplies());
+      return editInPlace(cq, f.text, f.markup);
+    }
+    const qa = replyText(r, l);
+    return editInPlace(cq, `❓ <b>${escapeHtml(qa.q)}</b>\n\n${escapeHtml(qa.a)}`, {
+      inline_keyboard: [[{ text: t.faqBack, callback_data: "faq:list" }]],
+    });
+  }
+
+  if (data === "dep:paid") {
+    const d = await takeState(user.id, "dep_confirm");
+    if (!d?.bk || !d.account || !d.card || !d.pay) return say(chatId, t.expired);
+    const tx = await createBotDeposit(user.id, { bk: d.bk, account: d.account, card: d.card, pay: d.pay, bonus: d.bonus ?? 0, fee: d.fee ?? 0 });
+    if (cq.message?.message_id)
+      await tg("editMessageReplyMarkup", {
+        chat_id: chatId,
+        message_id: cq.message.message_id,
+        reply_markup: { inline_keyboard: [[{ text: t.paidMark(tx.number), callback_data: "noop" }]] },
+      }).catch(() => undefined);
+    return sendMainMenu(chatId, l, s, t.paidSent(tx.number));
+  }
+
+  const [kind, id] = data.split(":");
+  if (kind === "acc" && id === "card") {
+    await setState(user.id, "set_card", {});
+    return say(chatId, t.cardAsk, stepKeyboard(l));
+  }
+  const bk = await findBk(id, s);
+  if (!bk) return;
+  const name = escapeHtml(bk.name);
+  if (kind === "acc") {
+    await setState(user.id, "set_acc", { bk: bk.id });
+    return say(chatId, t.accAsk(name), stepKeyboard(l));
+  }
+  if (kind === "dep" && bk.deposit_enabled) {
+    if (!s.card_number.trim()) return say(chatId, t.depOff);
+    await setState(user.id, "dep_account", { bk: bk.id });
+    const saved = await savedAccounts(user.id);
+    return say(chatId, t.askAccount(name), stepKeyboard(l, saved[bk.id]));
+  }
+  if (kind === "wd" && bk.withdraw_enabled) {
+    await setState(user.id, "wd_card", { bk: bk.id });
+    const saved = await savedAccounts(user.id);
+    return say(chatId, t.askCard, stepKeyboard(l, saved["card"]));
+  }
+}
+
+
 export async function handleUpdate(update: Update, fallbackOrigin: string) {
   await ensureMigrations();
   const s = await getSettings();
   const base = httpsBase(s, fallbackOrigin);
-  const walletUrl = `${base}/app`;
 
   // Bot made admin of a channel by one of our admins → that channel receives the selfies.
   if (update.my_chat_member) {
@@ -571,55 +787,19 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     const { user } = await upsertTgUser(from);
     await answered;
     if (user.is_blocked) {
-      await tg("sendMessage", { chat_id: chatId, text: TXT[langOf(user.lang)].blocked }).catch(() => undefined);
+      await say(chatId, TXT[langOf(user.lang)].blocked).catch(() => undefined);
       return;
     }
     if (data.startsWith("lang:")) {
       const l: L = langOf(data.slice(5));
       await sql`update public.tg_users set lang = ${l}, lang_chosen = true where id = ${user.id}`;
-      // The picker turns into "✅ Language: …" — it does not vanish.
       await editInPlace(cq, TXT[l].langSaved, { inline_keyboard: [] });
-      if (!user.phone) return sendPhoneRequest(chatId, l, base);
-      await sendWelcome(chatId, l, s);
-      return;
+      if (!user.phone) return sendPhoneRequest(chatId, l);
+      return sendMainMenu(chatId, l, s);
     }
     const l: L = langOf(user.lang);
-    if (!user.phone) return sendPhoneRequest(chatId, l, base);
-    if (data === "menu") {
-      // The bottom menu is always there; just close this message's buttons in place.
-      if (typeof cq.message?.text === "string") return editInPlace(cq, TXT[l].pickMenu, { inline_keyboard: [] });
-      if (cq.message?.message_id)
-        await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } }).catch(() => undefined);
-      return;
-    }
-    if (data === "faq:list") {
-      const f = faqList(l, await loadReplies());
-      return editInPlace(cq, f.text, f.markup);
-    }
-    if (data.startsWith("faq:")) {
-      const r = (await loadReplies()).find((x) => x.id === data.slice(4));
-      if (!r) {
-        const f = faqList(l, await loadReplies());
-        return editInPlace(cq, f.text, f.markup);
-      }
-      const qa = replyText(r, l);
-      return editInPlace(cq, `❓ <b>${escapeHtml(qa.q)}</b>\n\n${escapeHtml(qa.a)}`, {
-        inline_keyboard: [[{ text: TXT[l].faqBack, callback_data: "faq:list" }]],
-      });
-    }
-    if (data === "refs") {
-      const refs = await listReferrals(user.id);
-      const text = refs.length
-        ? [TXT[l].refsTitle(refs.length), "", ...refs.slice(0, 30).map((r, i) => `${i + 1}. ${escapeHtml(r.first_name ?? "")} ${r.username ? "@" + escapeHtml(r.username) : ""}`)].join("\n")
-        : TXT[l].refsEmpty;
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[{ text: TXT[l].backMenu, callback_data: "menu" }]] },
-      });
-    }
-    return;
+    if (!user.phone) return sendPhoneRequest(chatId, l);
+    return handleCustomerCallback(cq, chatId, l, s, user, data);
   }
 
   const msg = update.message;
@@ -632,33 +812,28 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     const arg = text.split(/\s+/)[1];
     const ref = arg && /^\d+$/.test(arg) ? Number(arg) : null;
     const { user } = await upsertTgUser(from, ref);
-    if (user.is_blocked) {
-      await tg("sendMessage", { chat_id: chatId, text: TXT[langOf(user.lang)].blocked });
-      return;
-    }
+    if (user.is_blocked) return void (await say(chatId, TXT[langOf(user.lang)].blocked));
+    await clearState(user.id);
     if (!user.lang_chosen) return sendLanguagePicker(chatId);
-    if (!user.phone) return sendPhoneRequest(chatId, langOf(user.lang), base);
-    return sendWelcome(chatId, langOf(user.lang), s);
+    if (!user.phone) return sendPhoneRequest(chatId, langOf(user.lang));
+    return sendMainMenu(chatId, langOf(user.lang), s);
   }
 
   const { user } = await upsertTgUser(from);
   const l: L = langOf(user.lang);
   const t = TXT[l];
-  if (user.is_blocked) {
-    await tg("sendMessage", { chat_id: chatId, text: t.blocked });
-    return;
-  }
-  // Shared contact (from the bot button or the wallet): only the sender's own number is accepted.
+  if (user.is_blocked) return void (await say(chatId, t.blocked));
+
+  // Shared contact: only the sender's own number is accepted.
   if (msg.contact) {
     const phone = normalizePhone(msg.contact.phone_number);
     if (!isOwnContact(msg.contact, from.id) || !phone) {
-      await tg("sendMessage", { chat_id: chatId, text: t.notOwnContact, parse_mode: "HTML" });
-      return sendPhoneRequest(chatId, l, base);
+      await say(chatId, t.notOwn);
+      return sendPhoneRequest(chatId, l);
     }
     await savePhone(user.id, phone);
-    await tg("sendMessage", { chat_id: chatId, text: t.phoneSaved(escapeHtml(phone)), parse_mode: "HTML" });
     if (!user.lang_chosen) return sendLanguagePicker(chatId);
-    return sendWelcome(chatId, l, s);
+    return sendMainMenu(chatId, l, s, t.phoneSaved);
   }
 
   if (text === "/lang") return sendLanguagePicker(chatId);
@@ -677,130 +852,33 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   }
 
   // No phone yet → nothing else opens.
-  if (!user.phone) return sendPhoneRequest(chatId, l, base);
-  if (text === "/menu") return sendMainMenu(chatId, l, s);
+  if (!user.phone) return sendPhoneRequest(chatId, l);
 
-  const action = matchMenu(text);
-  if (!action) {
-    // A typed question gets the matching ready answer; anything else points to the menu
-    // (without re-sending the bottom keyboard, so it doesn't jump).
-    const hit = text ? matchReply(text, await loadReplies().catch(() => [])) : null;
-    if (hit) {
-      const qa = replyText(hit, l);
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: `💬 <b>${escapeHtml(qa.q)}</b>\n\n${escapeHtml(qa.a)}`,
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: [[{ text: t.faqMore, callback_data: "faq:list" }]] },
-      });
-      return;
-    }
-    await tg("sendMessage", { chat_id: chatId, text: t.pickMenu, parse_mode: "HTML" });
+  const action = text === "/menu" ? "back" : matchMenu(text);
+  if (action) {
+    // Any menu button ends an unfinished step.
+    await clearState(user.id);
+    if (action === "cancel" || action === "back") return sendMainMenu(chatId, l, s);
+    if (action === "deposit") return showDeposit(chatId, l, s);
+    if (action === "withdraw") return showWithdraw(chatId, l, s);
+    if (action === "accounts") return showAccounts(chatId, l, s, user.id);
+    if (action === "ops") return say(chatId, t.pick, opsKeyboard(l));
+    if (action === "history") return showHistory(chatId, l, user.id);
+    if (action === "rates") return showRates(chatId, l, s);
+    if (action === "contact") return showContact(chatId, l, s);
     return;
   }
 
-  if (action === "faq") {
-    const f = faqList(l, await loadReplies().catch(() => []));
-    await tg("sendMessage", { chat_id: chatId, text: f.text, parse_mode: "HTML", reply_markup: f.markup });
-    return;
-  }
+  const st = text ? await getState(user.id) : null;
+  if (st) return handleStep(chatId, l, s, user, st, text);
 
-  if (action === "deposit") {
-    const bks = await sql<{ id: string; name: string }[]>`
-      select id, name from public.bookmakers where is_active and deposit_enabled order by sort_order`;
-    if (!bks.length) {
-      await tg("sendMessage", { chat_id: chatId, text: t.noBk });
-      return;
-    }
-    const kb = {
-      inline_keyboard: bks.map((b) => [
-        { text: `🇺🇿 ${b.name} | ⚡`, web_app: { url: `${walletUrl}?bk=${encodeURIComponent(b.id)}&mode=deposit` } },
-      ]),
-    };
-    return sendSlotVideo(chatId, "bot_deposit", t.depositIntro, kb);
-  }
-
-  if (action === "withdraw") {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: t.withdraw,
-      reply_markup: { inline_keyboard: [[{ text: t.toWallet, web_app: { url: walletUrl } }]] },
-    });
-    return;
-  }
-
-  if (action === "history") {
-    const txs = await sql<
-      { number: number; type: string; status: string; amount: number; created_at: string }[]
-    >`
-      select number::float8 as number, type, status, amount::float8 as amount, ${ts("created_at")} as created_at
-      from public.transactions
-      where user_id = ${user.id}
-      order by created_at desc
-      limit 10`;
-    if (!txs.length) {
-      await tg("sendMessage", {
-        chat_id: chatId,
-        text: t.historyTitle,
-        reply_markup: { inline_keyboard: [[{ text: t.historyEmpty, callback_data: "menu" }]] },
-      });
-      return;
-    }
-    const lines = txs.map(
-      (x) => `#${x.number} • ${t.ty[x.type] ?? x.type} • ${formatSom(x.amount)} • ${t.st[x.status] ?? x.status}\n<i>${formatDateTime(x.created_at)}</i>`,
-    );
-    await tg("sendMessage", { chat_id: chatId, text: `${t.historyTitle}\n\n${lines.join("\n\n")}`, parse_mode: "HTML" });
-    return;
-  }
-
-  if (action === "support") {
-    const url = supportUrl(s);
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: url ? t.support : t.supportMissing,
-      reply_markup: {
-        inline_keyboard: [
-          ...(url ? [[{ text: t.supportBtn, url }]] : []),
-          [{ text: t.backMenu, callback_data: "menu" }],
-        ],
-      },
-    });
-    return;
-  }
-
-  if (action === "referral") {
-    const link = referralLink(await resolveBotUsername(s), user.id);
-    const caption = t.referral(user.balance, link || "—", s.referral_percent || "2", user.referral_earned);
-    return sendSlotVideo(chatId, "bot_referral", escapeHtml(caption), {
-      inline_keyboard: [
-        ...(link ? [[{ text: t.shareBtn, url: shareLink(link, t.shareText) }]] : []),
-        [{ text: t.myRefs, callback_data: "refs" }],
-        [{ text: t.backMenu, callback_data: "menu" }],
-      ],
+  // A typed question gets the matching ready answer; anything else points to the buttons.
+  const hit = text ? matchReply(text, await loadReplies().catch(() => [])) : null;
+  if (hit) {
+    const qa = replyText(hit, l);
+    return say(chatId, `💬 <b>${escapeHtml(qa.q)}</b>\n\n${escapeHtml(qa.a)}`, {
+      inline_keyboard: [[{ text: t.faqMore, callback_data: "faq:list" }]],
     });
   }
-
-  if (action === "rates") {
-    const bks = await sql<
-      {
-        name: string;
-        deposit_enabled: boolean;
-        withdraw_enabled: boolean;
-        deposit_fee_percent: number;
-        withdraw_fee_percent: number;
-      }[]
-    >`
-      select name, deposit_enabled, withdraw_enabled,
-        deposit_fee_percent::float8 as deposit_fee_percent,
-        withdraw_fee_percent::float8 as withdraw_fee_percent
-      from public.bookmakers where is_active order by sort_order`;
-    const dep = bks.filter((b) => b.deposit_enabled).map((b) => `🇺🇿 ${b.name} | ⚡: ${Number(b.deposit_fee_percent)} %`);
-    const wd = bks.filter((b) => b.withdraw_enabled).map((b) => `🇺🇿 ${b.name} | ⚡: ${Number(b.withdraw_fee_percent)} %`);
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: `${t.ratesDeposit}\n\n${dep.join("\n") || "—"}\n\n${t.ratesWithdraw}\n\n${wd.join("\n") || "—"}`,
-      reply_markup: { inline_keyboard: [[{ text: t.backMenu, callback_data: "menu" }]] },
-    });
-    return;
-  }
+  return say(chatId, t.pick);
 }

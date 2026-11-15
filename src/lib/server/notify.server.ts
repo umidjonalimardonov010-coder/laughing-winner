@@ -21,7 +21,15 @@ type Tx = {
   receipt_path?: string | null;
   /** Why the request looks suspicious; such requests need a separate admin confirmation. */
   flag?: string | null;
+  /** 'bot' = made in the chat bot (card ⇄ bookmaker directly, no wallet balance). */
+  source?: string | null;
 };
+
+async function sourceOf(tx: Tx): Promise<string | null> {
+  if (tx.source !== undefined) return tx.source;
+  const r = await maybeOne(sql<{ source: string | null }[]>`select to_jsonb(t) ->> 'source' as source from public.transactions t where id = ${tx.id}`);
+  return r?.source ?? null;
+}
 
 const TYPE_UZ: Record<string, string> = {
   wallet_topup: "💳 Hamyonni to'ldirish",
@@ -78,15 +86,17 @@ function personLines(u: { first_name: string | null; last_name?: string | null; 
 
 /** Buttons under a request alert (also used to put them back after "↩️ Orqaga"). */
 export function adminKeyboard(
-  tx: { id: string; user_id: number; status?: string | null; type?: string; amount?: number },
+  tx: { id: string; user_id: number; status?: string | null; type?: string; amount?: number; source?: string | null },
   chatId: number,
   base: string,
-  needsAmount = tx.type === "bk_withdraw" && !tx.amount,
+  needsAmount = tx.type === "bk_withdraw" && !tx.amount && tx.source !== "bot",
 ): unknown[][] {
   const keyboard: unknown[][] = [];
+  const okText =
+    tx.source === "bot" ? (tx.type === "bk_withdraw" ? "✅ Kartaga o'tkazdim" : "✅ Pul tushdi") : "✅ Tasdiqlash";
   if ((tx.status ?? "pending") === "pending" && !needsAmount) {
     keyboard.push([
-      { text: "✅ Tasdiqlash", callback_data: `adm:ok:${tx.id}` },
+      { text: okText, callback_data: `adm:ok:${tx.id}` },
       { text: "❌ Rad etish", callback_data: `adm:no:${tx.id}` },
     ]);
   }
@@ -121,24 +131,41 @@ export async function notifyAdminsNewRequest(tx: Tx) {
       ...personLines(u, tx.user_id),
       LINE,
     ];
+    const source = await sourceOf(tx);
+    const bot = source === "bot";
     if (tx.bookmaker_id) lines.push(`🏢 Bukmeker: <b>${escapeHtml(await bkName(tx.bookmaker_id))}</b>`);
     if (tx.account_id) lines.push(`🎯 Hisob ID: <code>${escapeHtml(tx.account_id)}</code>`);
     if (tx.withdraw_code) lines.push(`🔑 Kod: <code>${escapeHtml(tx.withdraw_code)}</code>`);
-    if (tx.card_number) lines.push(`💳 Karta: <code>${cardGroups(tx.card_number)}</code>`);
-    if (tx.amount) lines.push(`💰 Summa: <b>${formatSom(tx.amount)} so'm</b>`);
-    if (tx.bonus) lines.push(`🎁 Bonus: +${formatSom(tx.bonus)} so'm (BK hisobiga jami <b>${formatSom(tx.amount + tx.bonus)} so'm</b>)`);
+    if (tx.card_number) lines.push(`💳 ${bot ? "Mijoz kartasi" : "Karta"}: <code>${cardGroups(tx.card_number)}</code>`);
+    if (bot && tx.type === "bk_deposit") {
+      lines.push(
+        `💰 Kartangizga tushishi kerak: <b>${formatSom(tx.amount)} so'm</b>`,
+        `🎯 BK hisobiga: <b>${formatSom(tx.amount + tx.bonus - tx.fee)} so'm</b>`,
+      );
+    } else if (bot && tx.type === "bk_withdraw") {
+      if (tx.amount) {
+        const send = tx.amount - (tx.fee ?? 0);
+        lines.push(`🏧 Kassadan yechildi: ${formatSom(tx.amount)} so'm`, `💸 Mijoz kartasiga o'tkazing: <b>${formatSom(send)} so'm</b>`);
+      } else lines.push("ℹ️ Summa aniqlanmagan — kassada kodni tekshirib, pulni kartaga o'tkazing.");
+    } else {
+      if (tx.amount) lines.push(`💰 Summa: <b>${formatSom(tx.amount)} so'm</b>`);
+      if (tx.bonus) lines.push(`🎁 Bonus: +${formatSom(tx.bonus)} so'm (BK hisobiga jami <b>${formatSom(tx.amount + tx.bonus)} so'm</b>)`);
+    }
     if (tx.admin_note) lines.push(`💬 ${escapeHtml(tx.admin_note)}`);
-    // A code withdrawal needs the amount typed in the panel; everything else can be decided right here.
-    const needsAmount = tx.type === "bk_withdraw" && !tx.amount;
+    // A wallet code withdrawal needs the amount typed in the panel; everything else can be decided right here.
+    const needsAmount = !bot && tx.type === "bk_withdraw" && !tx.amount;
     if (needsAmount) lines.push("ℹ️ Summani admin panelda kiriting.");
+    if (bot && tx.type === "bk_deposit")
+      lines.push("", "👉 Pul kartangizga tushganini tekshiring, keyin «✅ Pul tushdi» — bukmeker hisobiga avtomatik o'tadi.");
+    if (bot && tx.type === "bk_withdraw") lines.push("", "👉 Pulni mijoz kartasiga o'tkazing, keyin «✅ Kartaga o'tkazdim».");
     lines.push(LINE, `🕒 ${tashkentNow()}`);
-    if (isWithdraw) lines.push(s.selfie_channel_id.trim() ? "🤳 Yuz surati — selfi kanalida" : "⚠️ Selfi kanali ulanmagan — /kanal");
+    if (isWithdraw && !bot) lines.push(s.selfie_channel_id.trim() ? "🤳 Yuz surati — selfi kanalida" : "⚠️ Selfi kanali ulanmagan — /kanal");
     const base = publicBase(s);
     const receipt = tx.receipt_path && base ? await signedUrl("receipts", tx.receipt_path, 60 * 60 * 24, base) : null;
     const text = lines.join("\n");
     await Promise.all(
       ids.map((chatId) => {
-        const keyboard = adminKeyboard(tx, Number(chatId), base, needsAmount);
+        const keyboard = adminKeyboard({ ...tx, source }, Number(chatId), base, needsAmount);
         const markup = keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {};
         return sendWithReceipt(chatId, text, receipt, tx.receipt_path ?? "", markup).catch((e) =>
           console.error("notifyAdminsNewRequest send", chatId, e),
@@ -183,6 +210,10 @@ export async function notifyUserStatus(tx: Tx) {
         select lang, balance::float8 as balance from public.tg_users where id = ${tx.user_id}`,
     );
     const l = u?.lang === "ru" ? "ru" : u?.lang === "en" ? "en" : "uz";
+    if ((await sourceOf(tx)) === "bot") {
+      await tg("sendMessage", { chat_id: tx.user_id, text: await botStatusText(tx, l === "ru" ? "ru" : "uz"), parse_mode: "HTML" });
+      return;
+    }
     const T = STATUS_TEXT[l];
     const title = (l === "ru" ? TYPE_RU : l === "en" ? TYPE_EN : TYPE_UZ)[tx.type] ?? tx.type;
     const ok = tx.status === "approved";
@@ -196,6 +227,31 @@ export async function notifyUserStatus(tx: Tx) {
   } catch (e) {
     console.error("notifyUserStatus", e);
   }
+}
+
+/** Approved / rejected message for a chat-bot request (no wallet balance there). */
+async function botStatusText(tx: Tx, l: "uz" | "ru") {
+  const bk = escapeHtml(await bkName(tx.bookmaker_id));
+  const ok = tx.status === "approved";
+  const dep = tx.type === "bk_deposit";
+  const som = l === "ru" ? "сум" : "so'm";
+  const lines: string[] = [];
+  if (ok && dep) {
+    lines.push(l === "ru" ? `✅ <b>Счёт ${bk} пополнен!</b>` : `✅ <b>${bk} hisobingiz to'ldirildi!</b>`);
+    lines.push(`🧾 #${tx.number}`);
+    if (tx.account_id) lines.push(`🆔 ${escapeHtml(tx.account_id)}`);
+    lines.push(`💰 ${formatSom(tx.amount + tx.bonus - tx.fee)} ${som}`);
+  } else if (ok) {
+    lines.push(l === "ru" ? "✅ <b>Деньги отправлены на вашу карту!</b>" : "✅ <b>Pul kartangizga o'tkazildi!</b>");
+    lines.push(`🧾 #${tx.number} · ${bk}`);
+    if (tx.card_number) lines.push(`💳 ${maskCard(tx.card_number)}`);
+    if (tx.amount) lines.push(`💰 ${formatSom(tx.amount - (tx.fee ?? 0))} ${som}`);
+  } else {
+    lines.push(l === "ru" ? `❌ <b>Заявка #${tx.number} отклонена</b>` : `❌ <b>So'rov #${tx.number} rad etildi</b>`);
+    if (bk) lines.push(`🏢 ${bk}`);
+    if (tx.admin_note) lines.push(`💬 ${l === "ru" ? "Причина" : "Sabab"}: ${escapeHtml(tx.admin_note)}`);
+  }
+  return lines.join("\n");
 }
 
 // The receipt photo goes with the alert so the admin can check the payment in Telegram.

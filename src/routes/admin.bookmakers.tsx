@@ -5,7 +5,7 @@ import { ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { adminDeleteBookmaker, adminListBookmakers, adminSaveBookmaker } from "@/lib/admin.functions";
 import { errMsg, PageTitle, Panel, uploadMedia } from "@/components/admin/shared";
-import { BkLogo } from "@/components/wallet/ui";
+import { BkLogo } from "@/components/admin/BkLogo";
 import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/admin/bookmakers")({

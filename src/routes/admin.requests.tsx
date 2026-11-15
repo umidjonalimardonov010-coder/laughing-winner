@@ -126,12 +126,14 @@ function CopyVal({ label, value }: { label: string; value: string }) {
 
 function RequestCard({ r }: { r: Row }) {
   const qc = useQueryClient();
-  const [amount, setAmount] = useState(r.type === "wallet_topup" ? String(r.amount) : "");
+  const [amount, setAmount] = useState(r.type === "wallet_topup" || r.amount > 0 ? String(r.amount) : "");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<"ok" | "no" | "block" | null>(null);
   const user = r.tg_users as { id: number; username: string | null; first_name: string | null; balance: number } | null;
   const bk = r.bookmakers as { name: string } | null;
-  const needsAmount = r.type === "bk_withdraw" || r.type === "wallet_topup";
+  const bot = r.source === "bot";
+  // Bot deposits: the amount is the transfer the user made; bot withdrawals may be closed without one.
+  const needsAmount = (r.type === "bk_withdraw" && !(bot && r.amount > 0)) || r.type === "wallet_topup";
 
   const toggleBlock = async () => {
     const block = !r.user_blocked;
@@ -156,7 +158,7 @@ function RequestCard({ r }: { r: Row }) {
     try {
       if (kind === "ok") {
         const a = Number(amount.replace(/\D/g, "") || 0);
-        if (r.type === "bk_withdraw" && !a) throw new Error("amount_required");
+        if (r.type === "bk_withdraw" && !a && !bot) throw new Error("amount_required");
         await adminApproveRequest({ data: { id: r.id, amount: needsAmount ? a : 0, note } });
         toast.success(`#${r.number} tasdiqlandi`);
       } else {
@@ -243,7 +245,17 @@ function RequestCard({ r }: { r: Row }) {
             <span className="text-primary">🤳 Yuz surati</span>
           </a>
         )}
-        {(r.type === "card_withdraw" || r.type === "bk_withdraw") && !r.selfie_url && (
+        {bot && r.type === "bk_deposit" && (
+          <div className="rounded-lg bg-warning/10 px-3 py-2 text-warning">
+            Kartangizga aynan <b className="tabular">{formatSom(r.amount)} so'm</b> tushganini tekshiring, keyin tasdiqlang
+          </div>
+        )}
+        {bot && r.type === "bk_withdraw" && r.amount > 0 && (
+          <div className="rounded-lg bg-primary/10 px-3 py-2 text-primary">
+            Mijoz kartasiga o'tkazing: <b className="tabular">{formatSom(r.amount - r.fee)} so'm</b>
+          </div>
+        )}
+        {!bot && (r.type === "card_withdraw" || r.type === "bk_withdraw") && !r.selfie_url && (
           <div className="text-muted-foreground">Yuz surati yo'q (eski so'rov)</div>
         )}
         {r.type === "wallet_topup" && !r.receipt_url && <div className="text-warning">Chek yuklanmagan</div>}

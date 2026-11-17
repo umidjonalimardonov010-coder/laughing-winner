@@ -19,6 +19,8 @@ import { Route as AdminRequestsRouteImport } from './routes/admin.requests'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminVideosRouteImport } from './routes/admin.videos'
+import { Route as ApiPublicHamyonCompleteRouteImport } from './routes/api/public/hamyon/complete'
+import { Route as ApiPublicHamyonPrepareRouteImport } from './routes/api/public/hamyon/prepare'
 import { Route as ApiPublicMediaSplatRouteImport } from './routes/api/public/media/$'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
 import { Route as ApiPublicUploadSplatRouteImport } from './routes/api/public/upload/$'
@@ -73,6 +75,16 @@ const AdminVideosRoute = AdminVideosRouteImport.update({
   path: '/videos',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiPublicHamyonCompleteRoute = ApiPublicHamyonCompleteRouteImport.update({
+  id: '/api/public/hamyon/complete',
+  path: '/api/public/hamyon/complete',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicHamyonPrepareRoute = ApiPublicHamyonPrepareRouteImport.update({
+  id: '/api/public/hamyon/prepare',
+  path: '/api/public/hamyon/prepare',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicMediaSplatRoute = ApiPublicMediaSplatRouteImport.update({
   id: '/api/public/media/$',
   path: '/api/public/media/$',
@@ -101,6 +113,8 @@ export interface FileRoutesByFullPath {
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/hamyon/complete': typeof ApiPublicHamyonCompleteRoute
+  '/api/public/hamyon/prepare': typeof ApiPublicHamyonPrepareRoute
   '/api/public/media/$': typeof ApiPublicMediaSplatRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
   '/api/public/upload/$': typeof ApiPublicUploadSplatRoute
@@ -115,6 +129,8 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
   '/admin': typeof AdminIndexRoute
+  '/api/public/hamyon/complete': typeof ApiPublicHamyonCompleteRoute
+  '/api/public/hamyon/prepare': typeof ApiPublicHamyonPrepareRoute
   '/api/public/media/$': typeof ApiPublicMediaSplatRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
   '/api/public/upload/$': typeof ApiPublicUploadSplatRoute
@@ -131,6 +147,8 @@ export interface FileRoutesById {
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
   '/admin/': typeof AdminIndexRoute
+  '/api/public/hamyon/complete': typeof ApiPublicHamyonCompleteRoute
+  '/api/public/hamyon/prepare': typeof ApiPublicHamyonPrepareRoute
   '/api/public/media/$': typeof ApiPublicMediaSplatRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRoute
   '/api/public/upload/$': typeof ApiPublicUploadSplatRoute
@@ -148,6 +166,8 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/videos'
     | '/admin/'
+    | '/api/public/hamyon/complete'
+    | '/api/public/hamyon/prepare'
     | '/api/public/media/$'
     | '/api/public/telegram/webhook'
     | '/api/public/upload/$'
@@ -162,6 +182,8 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/videos'
     | '/admin'
+    | '/api/public/hamyon/complete'
+    | '/api/public/hamyon/prepare'
     | '/api/public/media/$'
     | '/api/public/telegram/webhook'
     | '/api/public/upload/$'
@@ -177,6 +199,8 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/videos'
     | '/admin/'
+    | '/api/public/hamyon/complete'
+    | '/api/public/hamyon/prepare'
     | '/api/public/media/$'
     | '/api/public/telegram/webhook'
     | '/api/public/upload/$'
@@ -185,6 +209,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
+  ApiPublicHamyonCompleteRoute: typeof ApiPublicHamyonCompleteRoute
+  ApiPublicHamyonPrepareRoute: typeof ApiPublicHamyonPrepareRoute
   ApiPublicMediaSplatRoute: typeof ApiPublicMediaSplatRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
   ApiPublicUploadSplatRoute: typeof ApiPublicUploadSplatRoute
@@ -262,6 +288,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminVideosRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/public/hamyon/complete': {
+      id: '/api/public/hamyon/complete'
+      path: '/api/public/hamyon/complete'
+      fullPath: '/api/public/hamyon/complete'
+      preLoaderRoute: typeof ApiPublicHamyonCompleteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hamyon/prepare': {
+      id: '/api/public/hamyon/prepare'
+      path: '/api/public/hamyon/prepare'
+      fullPath: '/api/public/hamyon/prepare'
+      preLoaderRoute: typeof ApiPublicHamyonPrepareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/media/$': {
       id: '/api/public/media/$'
       path: '/api/public/media/$'
@@ -313,6 +353,8 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
+  ApiPublicHamyonCompleteRoute: ApiPublicHamyonCompleteRoute,
+  ApiPublicHamyonPrepareRoute: ApiPublicHamyonPrepareRoute,
   ApiPublicMediaSplatRoute: ApiPublicMediaSplatRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
   ApiPublicUploadSplatRoute: ApiPublicUploadSplatRoute,

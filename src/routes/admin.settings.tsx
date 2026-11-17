@@ -8,7 +8,9 @@ import {
   adminCashdeskStatus,
   adminConnectBot,
   adminGetSettings,
+  adminHamyonStatus,
   adminSaveCashdesk,
+  adminSaveHamyon,
   adminSaveSettings,
   adminTestCashdesk,
 } from "@/lib/admin.functions";
@@ -36,7 +38,7 @@ const GROUPS: { title: string; fields: Field[] }[] = [
   {
     title: "To'lov qabul qilinadigan karta",
     fields: [
-      { key: "card_number", label: "Karta raqami", hint: "Hisob to'ldirishda mijoz shu kartaga pul o'tkazadi. Bo'sh bo'lsa to'ldirish yopiq.", placeholder: "8600 0000 0000 0000" },
+      { key: "card_number", label: "Karta raqami", hint: "Qo'lda rejim uchun: mijoz shu kartaga o'tkazadi, siz ✅ bosasiz. HamyonAPI ulangan bo'lsa kartani HamyonAPI beradi va bu ishlatilmaydi.", placeholder: "8600 0000 0000 0000" },
       { key: "card_holder", label: "Karta egasi", placeholder: "ISM FAMILIYA" },
       { key: "min_topup", label: "Minimal to'ldirish (so'm)", hint: "Bukmekerda min summa yozilmagan bo'lsa" },
       { key: "max_topup", label: "Maksimal to'ldirish (so'm)", hint: "Bukmekerda max summa yozilmagan bo'lsa" },
@@ -115,6 +117,7 @@ function SettingsPage() {
     <div className="max-w-3xl">
       <PageTitle title="Sozlamalar" sub="Bot va ilova ishlashi uchun kerakli ma'lumotlar." />
       <BotPanel />
+      <HamyonPanel />
       <CashdeskPanel />
       {q.isLoading ? (
         <Loader2 className="mx-auto my-16 size-8 animate-spin text-primary" />
@@ -264,6 +267,130 @@ function BotPanel() {
 }
 
 const inputCls = "h-10 w-full rounded-xl border border-input bg-secondary px-3 font-mono text-sm outline-none focus:border-primary";
+
+function CopyRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-sm font-medium">{label}</span>
+      <div className="flex gap-2">
+        <input readOnly value={value} className={inputCls} onFocus={(e) => e.currentTarget.select()} />
+        <button
+          type="button"
+          aria-label={`${label} nusxalash`}
+          onClick={() => navigator.clipboard.writeText(value).then(() => toast.success("Nusxalandi"))}
+          className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary"
+        >
+          <Copy className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HamyonPanel() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["admin-hamyon"], queryFn: () => adminHamyonStatus() });
+  const [shopId, setShopId] = useState("");
+  const [shopKey, setShopKey] = useState("");
+  const [busy, setBusy] = useState<"" | "save" | "clear">("");
+  const d = q.data;
+  useEffect(() => {
+    if (d) setShopId(d.shopId);
+  }, [d]);
+
+  const save = async (clear = false) => {
+    setBusy(clear ? "clear" : "save");
+    try {
+      await adminSaveHamyon({ data: { shopId, shopKey, clear } });
+      setShopKey("");
+      toast.success(clear ? "HamyonAPI o'chirildi" : "HamyonAPI saqlandi");
+      await qc.invalidateQueries({ queryKey: ["admin-hamyon"] });
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <Panel className="mt-4 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 font-semibold">
+          <KeyRound className="size-4" /> HamyonAPI (avto to'lov qabul qilish)
+        </div>
+        <button onClick={() => q.refetch()} className="text-muted-foreground" aria-label="Yangilash">
+          <RefreshCw className={`size-4 ${q.isFetching ? "animate-spin" : ""}`} />
+        </button>
+      </div>
+      {q.isLoading ? (
+        <Loader2 className="size-5 animate-spin text-primary" />
+      ) : (
+        <>
+          <p className="flex items-start gap-2 text-sm">
+            {d?.configured ? (
+              <>
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span>Avto to'lov yoqilgan: kartani HamyonAPI beradi, pul tushishi bilan so'rov o'zi tasdiqlanadi.</span>
+              </>
+            ) : (
+              <>
+                <XCircle className="mt-0.5 size-4 shrink-0 text-warning" />
+                <span>Avto to'lov o'chiq: mijoz yuqoridagi kartaga o'tkazadi, siz ✅ bosasiz.</span>
+              </>
+            )}
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Shop ID</span>
+              <input value={shopId} onChange={(e) => setShopId(e.target.value)} placeholder="396" className={inputCls} />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium">Shop key</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={shopKey}
+                onChange={(e) => setShopKey(e.target.value)}
+                placeholder={d?.hasKey ? "Saqlangan ✓ — almashtirish uchun yozing" : "Shop key"}
+                className={inputCls}
+              />
+            </label>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              disabled={!!busy}
+              onClick={() => save(false)}
+              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {busy === "save" ? <Loader2 className="size-4 animate-spin" /> : null} Saqlash
+            </button>
+            {d?.configured && (
+              <button
+                disabled={!!busy}
+                onClick={() => {
+                  if (confirm("HamyonAPI o'chirilsinmi? Hisob to'ldirish qo'lda rejimga o'tadi.")) save(true);
+                }}
+                className="h-11 rounded-xl border border-destructive px-4 font-semibold text-destructive disabled:opacity-60"
+              >
+                {busy === "clear" ? <Loader2 className="mx-auto size-4 animate-spin" /> : "O'chirish"}
+              </button>
+            )}
+          </div>
+          <div className="space-y-3 rounded-xl border border-border p-3">
+            <div className="text-sm">
+              @HamyonAPIBot → do'kon sozlamalariga shu ikki manzilni qo'ying (pul tushganini bot shu orqali biladi):
+            </div>
+            {d && <CopyRow label="prepare_url" value={d.prepareUrl} />}
+            {d && <CopyRow label="complete_url" value={d.completeUrl} />}
+            <p className="text-xs text-muted-foreground">
+              Manzil Railway'dagi saytingiz bo'lishi kerak. Noto'g'ri bo'lsa, yuqoridagi «Saytning ochiq manzili»ni to'g'rilab, «Botni ulash» ni bosing.
+            </p>
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+}
 
 function CashdeskPanel() {
   const qc = useQueryClient();

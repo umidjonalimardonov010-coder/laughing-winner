@@ -173,6 +173,19 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
       }
     },
   },
+  {
+    // HamyonAPI automatic deposits: payment id, card, state and the customer's payment message.
+    id: "2026-11-17-hamyon-payments",
+    run: async () => {
+      await sql`alter table public.transactions add column if not exists pay_id text`;
+      await sql`alter table public.transactions add column if not exists pay_card text`;
+      await sql`alter table public.transactions add column if not exists pay_state text`;
+      await sql`alter table public.transactions add column if not exists pay_msg_id bigint`;
+      await sql`alter table public.transactions add column if not exists pay_expire_at timestamptz`;
+      await sql`create unique index if not exists transactions_pay_id_idx on public.transactions(pay_id) where pay_id is not null`;
+      await sql`create index if not exists transactions_pay_wait_idx on public.transactions(created_at) where pay_state = 'wait'`;
+    },
+  },
 ];
 
 let done: Promise<void> | undefined;

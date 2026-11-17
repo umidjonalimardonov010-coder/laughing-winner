@@ -53,3 +53,11 @@
 - [x] Bot «Kurs | Zahira»: admin types sell/buy rate lines in Sozlamalar → Kurs
 - [x] Push bonus menu + rates to GitHub
 - [x] Main menu: Amallar (history, rates/reserve) removed; 💰 BONUS OLISH sits in its place
+
+## 2026-11-17 request: HamyonAPI automatic deposits
+- [x] Bot deposit through HamyonAPI: owner's payment text (uz + ru), card from HamyonAPI, ❌ Bekor qilish, busy sum +1 so'm
+- [x] Paid → auto top-up via cashdesk (no keys → admin alert); timeout/cancel → request closed, customer told
+- [x] Callback addresses (prepare/complete) + 1-minute status check as a safety net
+- [x] Admin panel «HamyonAPI» section (Shop ID, Shop key, both addresses to copy)
+- [x] Shop ID/key on Railway, push to GitHub
+- [ ] Owner pastes prepare/complete addresses into @HamyonAPIBot shop settings

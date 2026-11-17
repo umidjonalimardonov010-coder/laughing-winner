@@ -44,13 +44,9 @@ use the editor.
 - Money safety rules (card-withdraw limits, suspicious card/BK account, promo validity) are pure functions in `src/lib/money-rules.ts`; database reads for them live in `src/lib/server/safety.server.ts` — so wallet, bot and admin enforce one tested rule set.
 - A flagged request (`transactions.flag`) never pays out automatically; Telegram ✅ asks a second time (`adm:ok` → `adm:ok2`) and the panel asks `confirm()` — because flagged money must be checked by a person.
 - Promo use is claimed inside the same `sql.begin` as `create_debit_request` and released on reject — so a failed or refused deposit never eats a promo use.
-- Bot auto-replies come from `public.auto_replies` (admin page "Avto-javoblar"), cached 30 s and cleared on save.
 - The customer side is the chat bot only (LordPay style, `src/lib/server/bot.server.ts`); the WALLET mini app was removed — so there is no wallet balance for new requests.
 - Bot requests carry `transactions.source = 'bot'` and are approved/rejected by `approveBotRequest`/`rejectBotRequest` in `src/lib/server/exchange.server.ts`, never by the SQL balance functions — so card ⇄ bookmaker money never touches `tg_users.balance`.
-- Bot deposit: the user transfers an exact sum with a unique 100–999 tail (`pickPayAmount`) to `card_number`; admin ✅ then sends it to the bookmaker via the cashdesk, claimed with an `admin_note` marker so it is never sent twice; an unclear answer leaves it pending and the next ✅ closes it without resending.
-- Conversation steps live in `public.bot_state` (taken atomically with `takeState` before money moves); saved card/bookmaker IDs in `public.user_accounts`; input rules (UZCARD/HUMO, ID, code, amount) are pure in `src/lib/exchange-rules.ts` — so the flow survives restarts and the rules stay tested.
-- Bot reply keyboards: main menu, an Amallar submenu, and per-step keyboards (saved value + Cancel); any menu button clears the current step — matching the reference bot the owner chose.
-- Telegram alerts from server code run via `inBackground()` so the bot replies first.
+- Bot deposit: HamyonAPI (`hamyon.server.ts`, keys from panel or HAMYON_* env) gives the card; signed callback or 1-min status sweep claims `pay_state` once, then cashdesk auto top-up — so a payment is handled exactly once. Without it: manual card + `pickPayAmount` tail.
 
 <!-- AGENT-MEMORY:BEGIN -->
 - Bonus menu money uses `tg_users.balance` as the bonus balance; all changes live in `src/lib/server/bonus.server.ts` (pure rules in `src/lib/bonus-rules.ts`). Sending it to LINEBET is a `bk_deposit` with `source = 'bonus'` (balance taken at creation, refunded atomically on reject); the referral reward is paid from `approveRequest` on a friend's first approved bot deposit, guarded by `tg_users.referral_paid` — so no bonus is ever paid twice.

@@ -37,6 +37,7 @@ import type { Bookmaker } from "./wallet-auth.server";
 import { BONUS_BK, autoSendBonus, bonusBalance, createBonusWithdraw } from "./bonus.server";
 import { BONUS_TXT, balanceScreen, dailyScreen, inviteScreen } from "./bot-bonus.server";
 import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
+import { cancelByUser, cancelKeyboard, loadHamyonCreds, openPayment, savePayMessage, startHamyonDeposit, startHamyonWatcher } from "./hamyon.server";
 
 type L = "uz" | "ru";
 const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : "uz");
@@ -113,6 +114,9 @@ const TXT = {
     paidSent: (n: number) => `✅ So'rovingiz #${n} qabul qilindi.\nTo'lov tekshirilgach hisobingiz to'ldiriladi va sizga xabar keladi.`,
     paidMark: (n: number) => `⏳ #${n} tekshirilmoqda`,
     expired: "⏳ Bu so'rov eskirgan. Qaytadan «📮 Hisob to'ldirish» ni bosing.",
+    payCreated: (n: number, bk: string, acc: string) => `🧾 So'rov #${n} · ${bk}: <code>${acc}</code>`,
+    payOpen: "⏳ Sizda to'lanmagan to'lov bor. Avval shuni to'lang yoki bekor qiling:",
+    payFailed: "⚠️ To'lov yaratib bo'lmadi. Birozdan keyin qaytadan urinib ko'ring.",
     wdPick: "🔺 Pulingizni yechib olmoqchi bo'lgan kontorani tanlang:",
     noWd: "Hozircha yechib olish uchun kontoralar yo'q.",
     askCode: (bk: string, address: string) =>
@@ -173,6 +177,9 @@ const TXT = {
     paidSent: (n: number) => `✅ Заявка #${n} принята.\nПосле проверки оплаты счёт будет пополнен, придёт сообщение.`,
     paidMark: (n: number) => `⏳ #${n} на проверке`,
     expired: "⏳ Эта заявка устарела. Нажмите «📮 Пополнить счёт» ещё раз.",
+    payCreated: (n: number, bk: string, acc: string) => `🧾 Заявка #${n} · ${bk}: <code>${acc}</code>`,
+    payOpen: "⏳ У вас есть неоплаченный платёж. Сначала оплатите или отмените его:",
+    payFailed: "⚠️ Не удалось создать платёж. Попробуйте чуть позже.",
     wdPick: "🔺 Выберите контору, из которой хотите вывести деньги:",
     noWd: "Пока нет контор для вывода.",
     askCode: (bk: string, address: string) =>
@@ -518,6 +525,11 @@ function faqList(l: L, replies: AutoReply[]) {
 }
 
 // ---------- Customer screens ----------
+/** Deposits are open with HamyonAPI (automatic card) or with a manual top-up card set by the admin. */
+async function depositReady(s: Settings): Promise<boolean> {
+  return !!s.card_number.trim() || !!(await loadHamyonCreds());
+}
+
 const bkList = (s: Settings) => cached("bot-bookmakers", 15_000, listBookmakers).then((b) => (void s, b));
 
 async function findBk(id: string | undefined, s: Settings): Promise<Bookmaker | null> {
@@ -528,7 +540,7 @@ async function findBk(id: string | undefined, s: Settings): Promise<Bookmaker | 
 async function showDeposit(chatId: number, l: L, s: Settings) {
   const bks = (await bkList(s)).filter((b) => b.deposit_enabled);
   if (!bks.length) return say(chatId, TXT[l].noDep);
-  if (!s.card_number.trim()) return say(chatId, TXT[l].depOff);
+  if (!(await depositReady(s))) return say(chatId, TXT[l].depOff);
   await say(chatId, TXT[l].depPick, {
     inline_keyboard: rows(bks.map((b) => ({ text: `🚩 ${b.name}`, callback_data: `dep:${b.id}` })), 2),
   });
@@ -644,6 +656,30 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
     const { min, max } = minMax(bk!, s);
     const amount = parseAmount(text);
     if (!amount || amount < min || amount > max) return say(chatId, t.badAmount(min, max));
+    const hamyon = await loadHamyonCreds();
+    if (hamyon) {
+      // Automatic payment: HamyonAPI gives the card and confirms the transfer by itself.
+      const data = await takeState(user.id, "dep_amount");
+      if (!data?.account || !data.card) return sendMainMenu(chatId, l, s);
+      const open = await openPayment(user.id);
+      if (open) {
+        await sendMainMenu(chatId, l, s, t.payOpen);
+        return say(chatId, open.text, cancelKeyboard(l, open.tx.id));
+      }
+      const r = await startHamyonDeposit(hamyon, user.id, l, {
+        bk: bk!.id,
+        account: data.account,
+        card: data.card,
+        amount,
+        bonusPercent: num(s.deposit_bonus_percent, 0),
+        feePercent: Number(bk!.deposit_fee_percent),
+      });
+      if (r.kind === "failed") return sendMainMenu(chatId, l, s, t.payFailed);
+      await sendMainMenu(chatId, l, s, t.payCreated(r.tx.number, bkName, escapeHtml(data.account)));
+      const sent = await say(chatId, r.text, r.markup);
+      if (sent?.message_id) await savePayMessage(r.tx.id, sent.message_id);
+      return;
+    }
     if (!s.card_number.trim()) {
       await clearState(user.id);
       return sendMainMenu(chatId, l, s, t.depOff);
@@ -697,6 +733,12 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
     });
   }
 
+  if (data.startsWith("hp:x:")) {
+    const note = await cancelByUser(user.id, data.slice(5));
+    if (note) await say(chatId, note);
+    return;
+  }
+
   if (data === "dep:paid") {
     const d = await takeState(user.id, "dep_confirm");
     if (!d?.bk || !d.account || !d.card || !d.pay) return say(chatId, t.expired);
@@ -736,7 +778,13 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
     return say(chatId, t.accAsk(name), stepKeyboard(l));
   }
   if (kind === "dep" && bk.deposit_enabled) {
-    if (!s.card_number.trim()) return say(chatId, t.depOff);
+    if (!(await depositReady(s))) return say(chatId, t.depOff);
+    // One open automatic payment at a time: show it again instead of starting another.
+    const open = (await loadHamyonCreds()) ? await openPayment(user.id) : null;
+    if (open) {
+      await say(chatId, t.payOpen);
+      return say(chatId, open.text, cancelKeyboard(l, open.tx.id));
+    }
     await setState(user.id, "dep_account", { bk: bk.id });
     const saved = await savedAccounts(user.id);
     return say(chatId, t.askAccount(name), stepKeyboard(l, saved[bk.id]));
@@ -779,6 +827,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   await ensureMigrations();
   const s = await getSettings();
   const base = httpsBase(s, fallbackOrigin);
+  startHamyonWatcher();
 
   // Bot made admin of a channel by one of our admins → that channel receives the selfies.
   if (update.my_chat_member) {

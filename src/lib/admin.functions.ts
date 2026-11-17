@@ -20,6 +20,7 @@ import { approveRequest, isTelegramAdmin, rejectRequest, setUserBlocked } from "
 import { normalizePromo } from "./money-rules";
 import { cashdeskBalance, cashdeskFindUser, cashdeskVerdict, serverPublicIp } from "./server/cashdesk.server";
 import { loadCashdeskCreds, loadCashdeskDraft, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
+import { hamyonPanelValues, loadHamyonCreds, saveHamyonCreds } from "./server/hamyon.server";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
   return { configured: adminConfigured(), loggedIn: await isAdmin() };
@@ -614,6 +615,42 @@ export const adminTestCashdesk = createServerFn({ method: "POST" })
       balance: balance.ok ? { balance: balance.balance, limit: balance.limit } : null,
       checkedAt: Date.now(),
     };
+  });
+
+// ---------- HamyonAPI (automatic card payments for bot deposits) ----------
+// The shop key is never sent back to the browser.
+export const adminHamyonStatus = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  const s = await getSettings();
+  const panel = await hamyonPanelValues();
+  const creds = await loadHamyonCreds();
+  const base = (s.public_url || publicOrigin(getRequestUrl().origin)).replace(/\/$/, "");
+  return {
+    configured: !!creds,
+    shopId: panel.shopId || process.env["HAMYON_SHOP_ID"]?.trim() || "",
+    hasKey: !!(panel.shopKey || process.env["HAMYON_SHOP_KEY"]?.trim()),
+    prepareUrl: `${base}/api/public/hamyon/prepare`,
+    completeUrl: `${base}/api/public/hamyon/complete`,
+  };
+});
+
+export const adminSaveHamyon = createServerFn({ method: "POST" })
+  .inputValidator((d) =>
+    z
+      .object({
+        shopId: z.string().trim().regex(/^[A-Za-z0-9_-]{0,50}$/, "Shop ID noto'g'ri"),
+        shopKey: z.string().trim().max(200).optional(),
+        clear: z.boolean().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    if (data.clear) await saveHamyonCreds({ shopId: "", shopKey: "" });
+    // Empty key field = keep the saved one.
+    else await saveHamyonCreds({ shopId: data.shopId, shopKey: data.shopKey ? data.shopKey : undefined });
+    clearCache("hamyon-");
+    return { ok: true };
   });
 
 // ---------- Promo codes ----------

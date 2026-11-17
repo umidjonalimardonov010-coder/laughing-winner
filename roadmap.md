@@ -62,3 +62,6 @@
 - [x] Shop ID/key on Railway, push to GitHub
 - [x] Deposit screens like KARVON PAY: ID → F.I.O → summa → «✅BARCHA ILOVALARDAN» → receipt + card (no customer card step)
 - [ ] Owner pastes prepare/complete addresses into @HamyonAPIBot shop settings
+
+## 2026-11-17 request: admin messages
+- [x] Admin panel «Xabar yuborish»: everyone (all / uz / ru) or one person, text formatting, photo/video, link button, Telegram preview, test to admin, progress + stop, history

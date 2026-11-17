@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Ban, Loader2, Search, ShieldCheck } from "lucide-react";
+import { Ban, Loader2, Mail, Search, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { adminAdjustBalance, adminListUsers, adminSetBlocked } from "@/lib/admin.functions";
 import { formatDateTime, formatSom } from "@/lib/format";
@@ -66,7 +66,16 @@ function UsersPage() {
                   <td className="tabular px-4 py-3 text-right font-semibold">{formatSom(u.balance)}</td>
                   <td className="tabular px-4 py-3 text-right">{formatSom(u.referral_earned)}</td>
                   <td className="px-4 py-3 text-muted-foreground">{formatDateTime(u.created_at)}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <Link
+                      to="/admin/messages"
+                      search={{ to: u.id }}
+                      title="Xabar yozish"
+                      aria-label="Xabar yozish"
+                      className="mr-2 inline-flex rounded-lg bg-primary/15 p-2 align-middle text-primary"
+                    >
+                      <Mail className="size-4" />
+                    </Link>
                     <button onClick={() => setEdit(u)} className="rounded-lg bg-secondary px-3 py-1.5 font-medium">
                       Boshqarish
                     </button>

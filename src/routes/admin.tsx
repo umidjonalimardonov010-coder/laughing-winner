@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { BarChart3, Building2, Film, Inbox, Loader2, LogOut, MessageSquareText, Settings, Ticket, Users } from "lucide-react";
+import { BarChart3, Building2, Film, Inbox, Loader2, LogOut, Megaphone, MessageSquareText, Settings, Ticket, Users } from "lucide-react";
 import { toast } from "sonner";
 import { adminLogin, adminLogout, adminStatus, adminTelegramLogin } from "@/lib/admin.functions";
 import { loadTelegram } from "@/components/admin/telegram";
@@ -27,6 +27,7 @@ const NAV = [
   { to: "/admin", label: "Hisobot", icon: BarChart3, exact: true },
   { to: "/admin/requests", label: "So'rovlar", icon: Inbox },
   { to: "/admin/users", label: "Foydalanuvchilar", icon: Users },
+  { to: "/admin/messages", label: "Xabar yuborish", icon: Megaphone },
   { to: "/admin/bookmakers", label: "Bukmekerlar", icon: Building2 },
   { to: "/admin/promos", label: "Promo-kodlar", icon: Ticket },
   { to: "/admin/replies", label: "Avto-javoblar", icon: MessageSquareText },

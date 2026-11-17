@@ -4,7 +4,7 @@ import { getRequestUrl } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { countOf, maybeOne, sql, ts } from "./server/db.server";
 import { adminConfigured, adminSession, isAdmin, passwordMatches, requireAdmin } from "./server/admin-session.server";
-import { getSettings, saveSettings, SETTING_KEYS } from "./server/settings.server";
+import { getSettings, publicBase, saveSettings, SETTING_KEYS } from "./server/settings.server";
 import { clearCache } from "./server/memo.server";
 import { removeMedia, signedUploadUrl, signedUrl, signedUrls } from "./server/media.server";
 import { ensureMigrations } from "./server/migrations.server";
@@ -21,6 +21,8 @@ import { normalizePromo } from "./money-rules";
 import { cashdeskBalance, cashdeskFindUser, cashdeskVerdict, serverPublicIp } from "./server/cashdesk.server";
 import { loadCashdeskCreds, loadCashdeskDraft, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
 import { hamyonPanelValues, loadHamyonCreds, saveHamyonCreds } from "./server/hamyon.server";
+import { audienceCounts, cancelBroadcast, listBroadcasts, resumeBroadcasts, sendOne, startBroadcast } from "./server/broadcast.server";
+import { draftProblem } from "./broadcast-rules";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
   return { configured: adminConfigured(), loggedIn: await isAdmin() };
@@ -390,7 +392,7 @@ export const adminDeleteBookmaker = createServerFn({ method: "POST" })
 
 export const adminMediaUploadUrl = createServerFn({ method: "POST" })
   .inputValidator((d) =>
-    z.object({ folder: z.enum(["logos", "videos"]), ext: z.string().regex(/^[a-z0-9]{2,5}$/) }).parse(d),
+    z.object({ folder: z.enum(["logos", "videos", "broadcast"]), ext: z.string().regex(/^[a-z0-9]{2,5}$/) }).parse(d),
   )
   .handler(async ({ data }) => {
     await requireAdmin();
@@ -782,5 +784,80 @@ export const adminDeleteReply = createServerFn({ method: "POST" })
     await requireAdmin();
     await sql`delete from public.auto_replies where id = ${data.id}`;
     clearCache("auto-replies");
+    return { ok: true };
+  });
+
+// ---------- Messages to users (everyone or one person) ----------
+const messageSchema = z.object({
+  text: z.string().max(20_000),
+  mediaPath: z
+    .string()
+    .max(300)
+    .regex(/^broadcast\/[A-Za-z0-9._-]+$/)
+    .nullable(),
+  mediaType: z.enum(["photo", "video"]).nullable(),
+  buttonText: z.string().max(100).default(""),
+  buttonUrl: z.string().max(500).default(""),
+});
+
+function checkDraft(m: z.infer<typeof messageSchema>) {
+  const problem = draftProblem({ text: m.text, mediaType: m.mediaPath ? m.mediaType : null, buttonText: m.buttonText, buttonUrl: m.buttonUrl });
+  if (problem) throw new Error(problem);
+  if (telegramMode() === "none") throw new Error("bot_not_connected");
+  return { ...m, mediaType: m.mediaPath ? m.mediaType : null };
+}
+
+async function messageBase() {
+  return publicBase(await getSettings(), publicOrigin(getRequestUrl().origin)).replace(/^http:\/\/(?!localhost|127\.0\.0\.1)/, "https://");
+}
+
+export const adminBroadcastOverview = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  await ensureMigrations();
+  resumeBroadcasts();
+  const s = await getSettings();
+  const [counts, history] = await Promise.all([audienceCounts(), listBroadcasts(30)]);
+  return { counts, history, hasTestChat: parseAdminIds(s.admin_chat_id).length > 0 };
+});
+
+export const adminBroadcastTest = createServerFn({ method: "POST" })
+  .inputValidator((d) => messageSchema.parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    const m = checkDraft(data);
+    const ids = parseAdminIds((await getSettings()).admin_chat_id);
+    if (!ids.length) throw new Error("Sozlamalarda admin Telegram ID kiritilmagan");
+    const r = await sendOne(ids[0]!, m, await messageBase(), false);
+    if (!r.ok) throw new Error(r.error ?? "Yuborib bo'lmadi");
+    return { ok: true, to: ids[0]! };
+  });
+
+export const adminBroadcastSend = createServerFn({ method: "POST" })
+  .inputValidator((d) => messageSchema.extend({ audience: z.enum(["all", "uz", "ru"]) }).parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureMigrations();
+    const m = checkDraft(data);
+    return startBroadcast(m, data.audience, await messageBase());
+  });
+
+export const adminMessageUser = createServerFn({ method: "POST" })
+  .inputValidator((d) => messageSchema.extend({ userId: z.number().int().positive() }).parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await ensureMigrations();
+    const m = checkDraft(data);
+    const user = await maybeOne(sql<{ id: number }[]>`select id::float8 as id from public.tg_users where id = ${data.userId}`);
+    if (!user) throw new Error("user_not_found");
+    const r = await sendOne(data.userId, m, await messageBase(), true);
+    if (!r.ok) throw new Error(r.blocked ? "Bu foydalanuvchi botni bloklagan" : (r.error ?? "Yuborib bo'lmadi"));
+    return { ok: true };
+  });
+
+export const adminBroadcastCancel = createServerFn({ method: "POST" })
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    await requireAdmin();
+    await cancelBroadcast(data.id);
     return { ok: true };
   });

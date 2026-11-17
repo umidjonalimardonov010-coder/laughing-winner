@@ -40,6 +40,7 @@ import { BONUS_TXT, balanceScreen, dailyScreen, inviteScreen } from "./bot-bonus
 import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
 import { cancelByUser, cancelKeyboard, loadHamyonCreds, openPayment, savePayMessage, startHamyonDeposit, startHamyonWatcher } from "./hamyon.server";
 import { paySummary } from "@/lib/hamyon-rules";
+import { resumeBroadcasts } from "./broadcast.server";
 
 type L = "uz" | "ru";
 const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : "uz");
@@ -889,6 +890,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   const s = await getSettings();
   const base = httpsBase(s, fallbackOrigin);
   startHamyonWatcher();
+  resumeBroadcasts();
 
   // Bot made admin of a channel by one of our admins → that channel receives the selfies.
   if (update.my_chat_member) {

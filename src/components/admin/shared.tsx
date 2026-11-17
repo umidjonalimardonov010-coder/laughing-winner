@@ -49,7 +49,7 @@ export function Panel({ className, children }: { className?: string; children: R
   return <div className={cn("rounded-2xl border border-border bg-card p-5", className)}>{children}</div>;
 }
 
-export async function uploadMedia(folder: "logos" | "videos", file: File) {
+export async function uploadMedia(folder: "logos" | "videos" | "broadcast", file: File) {
   const ext = (file.name.split(".").pop() || (folder === "videos" ? "mp4" : "png")).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "bin";
   const { path, signedUrl } = await adminMediaUploadUrl({ data: { folder, ext } });
   await uploadToSignedUrl(signedUrl, file);
@@ -70,6 +70,7 @@ export function errMsg(e: unknown) {
     promo_bad_code: "Promo-kod faqat lotin harflari, raqam, - va _ dan iborat bo'lsin (2–32 belgi)",
     promo_bad_date: "Muddat sanasi noto'g'ri",
     user_not_found: "Foydalanuvchi topilmadi",
+    no_users: "Bu guruhda foydalanuvchi yo'q",
   };
   for (const [k, v] of Object.entries(map)) if (m.includes(k)) return v;
   return m || "Xatolik yuz berdi";

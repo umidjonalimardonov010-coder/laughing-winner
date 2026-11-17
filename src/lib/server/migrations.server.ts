@@ -186,6 +186,39 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
       await sql`create index if not exists transactions_pay_wait_idx on public.transactions(created_at) where pay_state = 'wait'`;
     },
   },
+  {
+    // Admin messages from the panel (everyone or one person) with progress, resumable after a restart.
+    id: "2026-11-17-broadcasts",
+    run: async () => {
+      await sql`create table if not exists public.broadcasts (
+        id uuid primary key default gen_random_uuid(),
+        kind text not null,
+        audience text not null default 'all',
+        target_user_id bigint,
+        text text not null default '',
+        media_path text,
+        media_type text,
+        file_id text,
+        button_text text,
+        button_url text,
+        media_base text,
+        status text not null default 'running',
+        total integer not null default 0,
+        sent integer not null default 0,
+        failed integer not null default 0,
+        blocked integer not null default 0,
+        cursor_id bigint,
+        runner text,
+        heartbeat timestamptz,
+        error text,
+        created_at timestamptz not null default now(),
+        finished_at timestamptz
+      )`;
+      await sql`alter table public.broadcasts enable row level security`;
+      await sql`create index if not exists broadcasts_created_idx on public.broadcasts(created_at desc)`;
+      await sql`create index if not exists broadcasts_running_idx on public.broadcasts(status) where status = 'running'`;
+    },
+  },
 ];
 
 let done: Promise<void> | undefined;

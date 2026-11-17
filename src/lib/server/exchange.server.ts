@@ -14,6 +14,7 @@ export type BotStep =
   | "dep_account"
   | "dep_card"
   | "dep_amount"
+  | "dep_method"
   | "dep_confirm"
   | "wd_card"
   | "wd_account"

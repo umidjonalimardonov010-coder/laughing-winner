@@ -1,5 +1,6 @@
 // Telegram bot (LordPay-style plain chat bot): language → phone → main keyboard.
-// Deposit: bookmaker → account ID → card → amount → transfer to our card → "✅ To'lov qildim" → admin ✅ →
+// Deposit with HamyonAPI (KARVON PAY style): account ID → name check → amount → "✅ BARCHA ILOVALARDAN" → HamyonAPI card,
+// paid automatically. Without HamyonAPI: account ID → card → amount → our card → "✅ To'lov qildim" → admin ✅ →
 // the cashdesk tops up the account. Withdraw: bookmaker → card → account ID → cashdesk code → payout →
 // admin sends the money to the card. Conversation steps live in public.bot_state.
 import { ensureMigrations } from "./migrations.server";
@@ -38,6 +39,7 @@ import { BONUS_BK, autoSendBonus, bonusBalance, createBonusWithdraw } from "./bo
 import { BONUS_TXT, balanceScreen, dailyScreen, inviteScreen } from "./bot-bonus.server";
 import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
 import { cancelByUser, cancelKeyboard, loadHamyonCreds, openPayment, savePayMessage, startHamyonDeposit, startHamyonWatcher } from "./hamyon.server";
+import { paySummary } from "@/lib/hamyon-rules";
 
 type L = "uz" | "ru";
 const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : "uz");
@@ -52,7 +54,8 @@ const MENU = {
     history: "📆 Amallar",
     rates: "🏧 Kurs | 💰 Zahira",
     back: "🔙 Bosh menyu",
-    cancel: "↪️ Bekor qilish",
+    cancel: "<<< Ortga qaytish",
+    cancelOld: "↪️ Bekor qilish",
     bonus: "💰 BONUS OLISH",
     balance: "💳 BALANS",
     invite: "👥 DO'STIMNI CHAQIRISH",
@@ -67,7 +70,8 @@ const MENU = {
     history: "📆 Операции",
     rates: "🏧 Курс | 💰 Резерв",
     back: "🔙 Главное меню",
-    cancel: "↪️ Отмена",
+    cancel: "<<< Назад",
+    cancelOld: "↪️ Отмена",
     bonus: "💰 ПОЛУЧИТЬ БОНУС",
     balance: "💳 БАЛАНС",
     invite: "👥 ПРИГЛАСИТЬ ДРУГА",
@@ -117,6 +121,13 @@ const TXT = {
     payCreated: (n: number, bk: string, acc: string) => `🧾 So'rov #${n} · ${bk}: <code>${acc}</code>`,
     payOpen: "⏳ Sizda to'lanmagan to'lov bor. Avval shuni to'lang yoki bekor qiling:",
     payFailed: "⚠️ To'lov yaratib bo'lmadi. Birozdan keyin qaytadan urinib ko'ring.",
+    depAskId: (bk: string) => `${bk} UZS id raqamingizni kiriting...`,
+    accInfo: (acc: string, name: string | null) => `🆔 Account ID: ${acc} UZS🇺🇿${name ? `\n👤F.I.O: ${name}` : ""}`,
+    askSum: (min: number, max: number) => `⬇️minimal summa ${min} so\`m\n⬆️maksimal summa ${max} so\`m\n\nSummani kiriting...`,
+    badSum: (min: number, max: number) => `❗️ Summa ${min} so\`m dan ${max} so\`m gacha bo'lishi kerak.\n\nSummani kiriting...`,
+    methodAsk: "Qaysi to`lov usuli orqali to`lov qilmoqchisiz?",
+    methodAll: "✅BARCHA ILOVALARDAN",
+    methodHint: "Yuqoridagi «✅BARCHA ILOVALARDAN» tugmasini bosing yoki «<<< Ortga qaytish».",
     wdPick: "🔺 Pulingizni yechib olmoqchi bo'lgan kontorani tanlang:",
     noWd: "Hozircha yechib olish uchun kontoralar yo'q.",
     askCode: (bk: string, address: string) =>
@@ -180,6 +191,13 @@ const TXT = {
     payCreated: (n: number, bk: string, acc: string) => `🧾 Заявка #${n} · ${bk}: <code>${acc}</code>`,
     payOpen: "⏳ У вас есть неоплаченный платёж. Сначала оплатите или отмените его:",
     payFailed: "⚠️ Не удалось создать платёж. Попробуйте чуть позже.",
+    depAskId: (bk: string) => `Введите ваш ID ${bk} UZS...`,
+    accInfo: (acc: string, name: string | null) => `🆔 Account ID: ${acc} UZS🇺🇿${name ? `\n👤Ф.И.О: ${name}` : ""}`,
+    askSum: (min: number, max: number) => `⬇️минимальная сумма ${min} сум\n⬆️максимальная сумма ${max} сум\n\nВведите сумму...`,
+    badSum: (min: number, max: number) => `❗️ Сумма должна быть от ${min} до ${max} сум.\n\nВведите сумму...`,
+    methodAsk: "Каким способом хотите оплатить?",
+    methodAll: "✅ИЗ ЛЮБОГО ПРИЛОЖЕНИЯ",
+    methodHint: "Нажмите «✅ИЗ ЛЮБОГО ПРИЛОЖЕНИЯ» выше или «<<< Назад».",
     wdPick: "🔺 Выберите контору, из которой хотите вывести деньги:",
     noWd: "Пока нет контор для вывода.",
     askCode: (bk: string, address: string) =>
@@ -250,8 +268,14 @@ function matchMenu(text: string): MenuKey | null {
   return null;
 }
 
-const say = (chatId: number, text: string, reply_markup?: unknown) =>
-  tg("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", ...(reply_markup ? { reply_markup } : {}) });
+const say = (chatId: number, text: string, reply_markup?: unknown, replyTo?: number) =>
+  tg("sendMessage", {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    ...(reply_markup ? { reply_markup } : {}),
+    ...(replyTo ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } } : {}),
+  });
 
 async function sendMainMenu(chatId: number, l: L, s: Settings, text = TXT[l].mainMenu) {
   const admin = chatId > 0 && (await isTelegramAdmin(chatId, s).catch(() => false));
@@ -537,10 +561,12 @@ async function findBk(id: string | undefined, s: Settings): Promise<Bookmaker | 
   return (await bkList(s)).find((b) => b.id === id) ?? null;
 }
 
-async function showDeposit(chatId: number, l: L, s: Settings) {
+async function showDeposit(chatId: number, l: L, s: Settings, user: TgUser) {
   const bks = (await bkList(s)).filter((b) => b.deposit_enabled);
   if (!bks.length) return say(chatId, TXT[l].noDep);
   if (!(await depositReady(s))) return say(chatId, TXT[l].depOff);
+  // With automatic payments and a single bookmaker the customer goes straight to the ID (KARVON PAY style).
+  if (bks.length === 1 && (await loadHamyonCreds())) return beginDeposit(chatId, l, s, user, bks[0]!);
   await say(chatId, TXT[l].depPick, {
     inline_keyboard: rows(bks.map((b) => ({ text: `🚩 ${b.name}`, callback_data: `dep:${b.id}` })), 2),
   });
@@ -584,8 +610,29 @@ async function accountExists(bkId: string, account: string): Promise<boolean | n
   return r ? r.found : null;
 }
 
+/** The bookmaker's answer about an account: null when there is no cashdesk or no clear answer. */
+async function lookupAccount(bkId: string, account: string): Promise<{ found: boolean; name: string | null } | null> {
+  const creds = await loadCashdeskCreds(bkId);
+  return creds ? cashdeskFindUser(creds, account) : null;
+}
+
+/** First deposit step for a chosen bookmaker; an unpaid automatic payment is shown again instead. */
+async function beginDeposit(chatId: number, l: L, s: Settings, user: TgUser, bk: Bookmaker) {
+  const t = TXT[l];
+  const hamyon = await loadHamyonCreds();
+  const open = hamyon ? await openPayment(user.id) : null;
+  if (open) {
+    await say(chatId, t.payOpen);
+    return say(chatId, open.text, cancelKeyboard(l, open.tx.id));
+  }
+  await setState(user.id, "dep_account", { bk: bk.id });
+  const saved = await savedAccounts(user.id);
+  const name = escapeHtml(bk.name);
+  return say(chatId, hamyon ? t.depAskId(name) : t.askAccount(name), stepKeyboard(l, saved[bk.id]));
+}
+
 // ---------- Step input ----------
-async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: { step: string; data: StepData }, text: string) {
+async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: { step: string; data: StepData }, text: string, msgId?: number) {
   const t = TXT[l];
   const d = st.data;
   const bk = await findBk(d.bk, s);
@@ -619,8 +666,16 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
   if (st.step === "dep_account" || st.step === "wd_account" || st.step === "set_acc") {
     const acc = parseAccountId(text);
     if (!acc) return say(chatId, t.badAccount);
-    if ((await accountExists(bk!.id, acc)) === false) return say(chatId, t.noAccount);
+    const found = await lookupAccount(bk!.id, acc);
+    if (found?.found === false) return say(chatId, t.noAccount);
     await saveAccount(user.id, bk!.id, acc);
+    if (st.step === "dep_account" && (await loadHamyonCreds())) {
+      // HamyonAPI gives the card, so the customer's own card is not asked.
+      await setState(user.id, "dep_amount", { ...d, account: acc, card: "" });
+      const { min, max } = minMax(bk!, s);
+      await say(chatId, t.accInfo(acc, found?.name ? escapeHtml(found.name) : null), undefined, msgId);
+      return say(chatId, t.askSum(min, max), stepKeyboard(l));
+    }
     if (st.step === "set_acc") {
       await clearState(user.id);
       return sendMainMenu(chatId, l, s, t.accSaved(bkName));
@@ -655,31 +710,12 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
   if (st.step === "dep_amount") {
     const { min, max } = minMax(bk!, s);
     const amount = parseAmount(text);
-    if (!amount || amount < min || amount > max) return say(chatId, t.badAmount(min, max));
-    const hamyon = await loadHamyonCreds();
-    if (hamyon) {
-      // Automatic payment: HamyonAPI gives the card and confirms the transfer by itself.
-      const data = await takeState(user.id, "dep_amount");
-      if (!data?.account || !data.card) return sendMainMenu(chatId, l, s);
-      const open = await openPayment(user.id);
-      if (open) {
-        await sendMainMenu(chatId, l, s, t.payOpen);
-        return say(chatId, open.text, cancelKeyboard(l, open.tx.id));
-      }
-      const r = await startHamyonDeposit(hamyon, user.id, l, {
-        bk: bk!.id,
-        account: data.account,
-        card: data.card,
-        amount,
-        bonusPercent: num(s.deposit_bonus_percent, 0),
-        feePercent: Number(bk!.deposit_fee_percent),
-      });
-      if (r.kind === "failed") return sendMainMenu(chatId, l, s, t.payFailed);
-      await sendMainMenu(chatId, l, s, t.payCreated(r.tx.number, bkName, escapeHtml(data.account)));
-      const sent = await say(chatId, r.text, r.markup);
-      if (sent?.message_id) await savePayMessage(r.tx.id, sent.message_id);
-      return;
+    if (await loadHamyonCreds()) {
+      if (!amount || amount < min || amount > max) return say(chatId, t.badSum(min, max));
+      await setState(user.id, "dep_method", { ...d, amount });
+      return say(chatId, t.methodAsk, { inline_keyboard: [[{ text: t.methodAll, callback_data: "dep:hp", style: "success" }]] });
     }
+    if (!amount || amount < min || amount > max) return say(chatId, t.badAmount(min, max));
     if (!s.card_number.trim()) {
       await clearState(user.id);
       return sendMainMenu(chatId, l, s, t.depOff);
@@ -693,6 +729,8 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
       { inline_keyboard: [[{ text: t.paidBtn, callback_data: "dep:paid", style: "success" }]] },
     );
   }
+
+  if (st.step === "dep_method") return say(chatId, t.methodHint);
 
   if (st.step === "dep_confirm") {
     // Waiting for the "paid" button; typed text just repeats the hint.
@@ -711,6 +749,35 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
     if (r.kind === "done") return sendMainMenu(chatId, l, s, t.wdDone(r.tx.number, r.send, maskCard(data.card)));
     return sendMainMenu(chatId, l, s, t.wdPending(r.tx.number));
   }
+}
+
+/** "✅ BARCHA ILOVALARDAN": HamyonAPI creates the payment; the customer gets the receipt and the card. */
+async function payAllApps(cq: Update, chatId: number, l: L, s: Settings, user: TgUser) {
+  const t = TXT[l];
+  const hamyon = await loadHamyonCreds();
+  // Claimed first, so a double tap never opens two payments.
+  const data = await takeState(user.id, "dep_method");
+  const bk = await findBk(data?.bk, s);
+  if (!hamyon || !data?.account || !data.amount || !bk) return say(chatId, t.expired);
+  if (cq.message?.message_id) await tg("deleteMessage", { chat_id: chatId, message_id: cq.message.message_id }).catch(() => undefined);
+  const open = await openPayment(user.id);
+  if (open) {
+    await sendMainMenu(chatId, l, s, t.payOpen);
+    return say(chatId, open.text, cancelKeyboard(l, open.tx.id));
+  }
+  const feePercent = Number(bk.deposit_fee_percent) || 0;
+  const r = await startHamyonDeposit(hamyon, user.id, l, {
+    bk: bk.id,
+    account: data.account,
+    card: data.card ?? "",
+    amount: data.amount,
+    bonusPercent: num(s.deposit_bonus_percent, 0),
+    feePercent,
+  });
+  if (r.kind === "failed") return sendMainMenu(chatId, l, s, t.payFailed);
+  await sendMainMenu(chatId, l, s, paySummary(l, { number: r.tx.number, bk: escapeHtml(bk.name), account: escapeHtml(data.account), pay: r.tx.amount, fee: r.tx.fee, feePercent, card: r.card }));
+  const sent = await say(chatId, r.text, r.markup);
+  if (sent?.message_id) await savePayMessage(r.tx.id, sent.message_id);
 }
 
 // ---------- Customer buttons under messages ----------
@@ -738,6 +805,8 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
     if (note) await say(chatId, note);
     return;
   }
+
+  if (data === "dep:hp") return payAllApps(cq, chatId, l, s, user);
 
   if (data === "dep:paid") {
     const d = await takeState(user.id, "dep_confirm");
@@ -779,15 +848,7 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
   }
   if (kind === "dep" && bk.deposit_enabled) {
     if (!(await depositReady(s))) return say(chatId, t.depOff);
-    // One open automatic payment at a time: show it again instead of starting another.
-    const open = (await loadHamyonCreds()) ? await openPayment(user.id) : null;
-    if (open) {
-      await say(chatId, t.payOpen);
-      return say(chatId, open.text, cancelKeyboard(l, open.tx.id));
-    }
-    await setState(user.id, "dep_account", { bk: bk.id });
-    const saved = await savedAccounts(user.id);
-    return say(chatId, t.askAccount(name), stepKeyboard(l, saved[bk.id]));
+    return beginDeposit(chatId, l, s, user, bk);
   }
   if (kind === "wd" && bk.withdraw_enabled) {
     await setState(user.id, "wd_card", { bk: bk.id });
@@ -924,8 +985,8 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   if (action) {
     // Any menu button ends an unfinished step.
     await clearState(user.id);
-    if (action === "cancel" || action === "back") return sendMainMenu(chatId, l, s);
-    if (action === "deposit") return showDeposit(chatId, l, s);
+    if (action === "cancel" || action === "cancelOld" || action === "back") return sendMainMenu(chatId, l, s);
+    if (action === "deposit") return showDeposit(chatId, l, s, user);
     if (action === "withdraw") return showWithdraw(chatId, l, s);
     if (action === "accounts") return showAccounts(chatId, l, s, user.id);
     // The Amallar menu is gone; a tap on an old keyboard brings the new main menu.
@@ -941,7 +1002,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   }
 
   const st = text ? await getState(user.id) : null;
-  if (st) return handleStep(chatId, l, s, user, st, text);
+  if (st) return handleStep(chatId, l, s, user, st, text, msg.message_id);
 
   // A typed question gets the matching ready answer; anything else points to the buttons.
   const hit = text ? matchReply(text, await loadReplies().catch(() => [])) : null;

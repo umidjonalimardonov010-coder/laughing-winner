@@ -60,4 +60,5 @@
 - [x] Callback addresses (prepare/complete) + 1-minute status check as a safety net
 - [x] Admin panel «HamyonAPI» section (Shop ID, Shop key, both addresses to copy)
 - [x] Shop ID/key on Railway, push to GitHub
+- [x] Deposit screens like KARVON PAY: ID → F.I.O → summa → «✅BARCHA ILOVALARDAN» → receipt + card (no customer card step)
 - [ ] Owner pastes prepare/complete addresses into @HamyonAPIBot shop settings

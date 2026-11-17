@@ -14,7 +14,7 @@ import { approveRequest } from "./requests.server";
 import { rejectBotRequest } from "./exchange.server";
 import { depositSplit } from "@/lib/exchange-rules";
 import { formatSom } from "@/lib/format";
-import { isAmountBusyError, nextFreeAmount, payMinutes, payText, signSource, type HamyonCallback } from "@/lib/hamyon-rules";
+import { cardDigits, isAmountBusyError, nextFreeAmount, payMinutes, payText, signSource, type HamyonCallback } from "@/lib/hamyon-rules";
 
 const BASE = "https://hamyon-api.uz";
 type L = "uz" | "ru";
@@ -183,7 +183,7 @@ export async function openPayment(userId: number): Promise<{ tx: PayRow; text: s
 }
 
 export type StartResult =
-  | { kind: "ok"; tx: TxRow; text: string; markup: unknown }
+  | { kind: "ok"; tx: TxRow; text: string; markup: unknown; card: string }
   | { kind: "failed"; message: string };
 
 /**
@@ -203,7 +203,7 @@ export async function startHamyonDeposit(
   let pay = nextFreeAmount(d.amount, busy);
   const rows = await sql<TxRow[]>`
     insert into public.transactions (user_id, type, bookmaker_id, account_id, card_number, amount, bonus, fee, source, pay_state)
-    values (${userId}, 'bk_deposit', ${d.bk}, ${d.account}, ${d.card}, ${pay}, 0, 0, 'bot', 'creating')
+    values (${userId}, 'bk_deposit', ${d.bk}, ${d.account}, ${d.card || null}, ${pay}, 0, 0, 'bot', 'creating')
     returning ${TX_COLS()}`;
   const tx = rows[0];
   if (!tx) throw new Error("request_failed");
@@ -229,6 +229,7 @@ export async function startHamyonDeposit(
     tx: upd[0] ?? tx,
     text: payText(l, pay, created.card, payMinutes(created.expiresIn)),
     markup: cancelKeyboard(l, tx.id),
+    card: cardDigits(created.card),
   };
 }
 

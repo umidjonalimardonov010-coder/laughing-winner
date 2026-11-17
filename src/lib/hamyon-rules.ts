@@ -89,3 +89,30 @@ export function payText(l: "uz" | "ru", pay: number, card: string, minutes: numb
     "‼️Xato qilsangiz: PULINGIZGA KUYASIZ!",
   ].join("\n");
 }
+
+/** Receipt sent right before the payment text (KARVON PAY style). */
+export function paySummary(
+  l: "uz" | "ru",
+  d: { number: number; bk: string; account: string; pay: number; fee: number; feePercent: number; card: string },
+): string {
+  const c = cardDigits(d.card);
+  const pct = Number.isFinite(d.feePercent) ? d.feePercent : 0;
+  if (l === "ru") {
+    return [
+      `#${d.number}`,
+      `🆔${d.bk} ID: ${d.account}`,
+      `💸Сумма: ${d.pay} сум`,
+      `💰Комиссия: ${d.fee} сум (${pct}%)`,
+      "",
+      `Переведите <b>${d.pay}</b> сум на карту <code>${c}</code>.`,
+    ].join("\n");
+  }
+  return [
+    `#${d.number}`,
+    `🆔${d.bk} ID: ${d.account}`,
+    `💸Summa: ${d.pay} so\`m`,
+    `💰Komissiya: ${d.fee} so\`m (${pct}%)`,
+    "",
+    `<b>${d.pay}</b> summani <code>${c}</code> kartaga o\`tkazing.`,
+  ].join("\n");
+}

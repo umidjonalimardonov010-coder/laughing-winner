@@ -1,5 +1,5 @@
 # Server rules (bot)
 - Bot auto-replies come from `public.auto_replies` (admin page "Avto-javoblar"), cached 30 s and cleared on save.
 - Conversation steps live in `public.bot_state` (taken atomically with `takeState` before money moves); saved card/bookmaker IDs in `public.user_accounts`; input rules (UZCARD/HUMO, ID, code, amount) are pure in `src/lib/exchange-rules.ts` — so the flow survives restarts and the rules stay tested.
-- Bot reply keyboards: main menu, an Amallar submenu, and per-step keyboards (saved value + Cancel); any menu button clears the current step — matching the reference bot the owner chose.
+- Bot reply keyboards: main menu and per-step keyboards (saved value + «<<< Ortga qaytish»; the old «↪️ Bekor qilish» label still works); any menu button clears the current step. With HamyonAPI the deposit follows the KARVON PAY screens the owner sent: ID → cashdesk name → amount → `dep_method` step with «✅BARCHA ILOVALARDAN» (`dep:hp`) → receipt (`paySummary`) + payment text; the customer's card is not asked.
 - Telegram alerts from server code run via `inBackground()` so the bot replies first.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { isAmountBusyError, nextFreeAmount, parseHamyonCallback, payMinutes, payText, signSource } from "./hamyon-rules";
+import { isAmountBusyError, nextFreeAmount, parseHamyonCallback, payMinutes, paySummary, payText, signSource } from "./hamyon-rules";
 
 describe("HamyonAPI rules", () => {
   it("keeps the sum when it is free", () => {
@@ -34,5 +34,13 @@ describe("HamyonAPI rules", () => {
     expect(t).toContain("<code>9860340101723997</code>");
     expect(t).toContain("5 DAQIQA ICHIDA OTKAZISH SHART");
     expect(t).toContain("PULINGIZGA KUYASIZ!");
+  });
+  it("receipt shows the request number, ID, sum, commission and the card", () => {
+    const t = paySummary("uz", { number: 688496, bk: "LINEBET", account: "533597531", pay: 70000, fee: 0, feePercent: 0, card: "5614 6810 7637 1107" });
+    expect(t).toContain("#688496");
+    expect(t).toContain("LINEBET ID: 533597531");
+    expect(t).toContain("Summa: 70000 so`m");
+    expect(t).toContain("Komissiya: 0 so`m (0%)");
+    expect(t).toContain("<b>70000</b> summani <code>5614681076371107</code> kartaga");
   });
 });

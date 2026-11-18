@@ -3,6 +3,7 @@
 // app_settings) or from server environment variables (Railway → Variables):
 //   LINEBET_CASHDESK_ID, LINEBET_CASHIER_PASS, LINEBET_HASH, optional LINEBET_API_URL, LINEBET_LNG.
 // Panel values win over env. When neither is set the bookmaker stays in manual mode.
+import { fetchRetry } from "@/lib/net-retry";
 import { createHash } from "node:crypto";
 
 const DEFAULT_API_URL = "https://partners.servcul.com/CashdeskBotAPI/";
@@ -116,7 +117,8 @@ export function classifyResponse(status: number, body: ApiBody | null): Cashdesk
 }
 
 async function call(c: CashdeskCreds, method: "GET" | "POST", path: string, sign: string, body?: unknown): Promise<{ status: number; json: ApiBody | null }> {
-  const res = await fetch(c.apiUrl + path, {
+  // Tried again only when the connection never opened, so a top-up is never sent twice.
+  const res = await fetchRetry(c.apiUrl + path, {
     method,
     headers: { sign, "Content-Type": "application/json", Accept: "application/json" },
     body: body === undefined ? null : JSON.stringify(body),

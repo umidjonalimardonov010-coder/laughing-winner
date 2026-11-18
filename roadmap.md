@@ -62,6 +62,8 @@
 - [x] Shop ID/key on Railway, push to GitHub
 - [x] Deposit screens like KARVON PAY: ID → F.I.O → summa → «✅BARCHA ILOVALARDAN» → receipt + card (no customer card step)
 - [ ] Owner pastes prepare/complete addresses into @HamyonAPIBot shop settings
+- [x] 2026-11-18: bot retries when Telegram/HamyonAPI can't be reached (Railway connect timeouts); every HamyonAPI callback logged
+- [ ] HamyonAPI did not see the 5000 so'm payment #30 (status cancel) — owner checks the card connection in @HamyonAPIBot / @HumoCardBot
 
 ## 2026-11-17 request: admin messages
 - [x] Admin panel «Xabar yuborish»: everyone (all / uz / ru) or one person, text formatting, photo/video, link button, Telegram preview, test to admin, progress + stop, history

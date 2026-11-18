@@ -14,4 +14,5 @@ ENV NODE_ENV=production
 ENV MEDIA_DIR=/data/media
 COPY --from=build /app/.output ./.output
 EXPOSE 3000
-CMD ["node", ".output/server/index.mjs"]
+# IPv4 first + longer connect wait: Railway sometimes timed out connecting to api.telegram.org.
+CMD ["node", "--dns-result-order=ipv4first", "--network-family-autoselection-attempt-timeout=2000", ".output/server/index.mjs"]

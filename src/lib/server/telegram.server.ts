@@ -1,6 +1,8 @@
 // Telegram Bot API client.
 // - If TELEGRAM_BOT_TOKEN is set (e.g. on Railway), calls api.telegram.org directly.
 // - Otherwise uses the Lovable Telegram connector gateway (LOVABLE_API_KEY + TELEGRAM_API_KEY).
+import { fetchRetry } from "@/lib/net-retry";
+
 const GATEWAY_URL = "https://connector-gateway.lovable.dev/telegram";
 
 export function telegramMode(): "token" | "gateway" | "none" {
@@ -33,7 +35,7 @@ export async function tg<T = any>(method: string, body: Record<string, unknown> 
   } else {
     throw new TelegramError(method, 0, "Telegram bot is not connected");
   }
-  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  const res = await fetchRetry(url, { method: "POST", headers, body: JSON.stringify(body) });
   const text = await res.text();
   let json: { ok?: boolean; result?: T; description?: string } | null = null;
   try {

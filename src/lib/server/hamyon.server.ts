@@ -14,6 +14,7 @@ import { approveRequest } from "./requests.server";
 import { rejectBotRequest } from "./exchange.server";
 import { depositSplit } from "@/lib/exchange-rules";
 import { formatSom } from "@/lib/format";
+import { fetchRetry } from "@/lib/net-retry";
 import { cardDigits, isAmountBusyError, nextFreeAmount, payMinutes, payText, signSource, type HamyonCallback } from "@/lib/hamyon-rules";
 
 const BASE = "https://hamyon-api.uz";
@@ -62,7 +63,7 @@ export async function saveHamyonCreds(v: { shopId?: string | undefined; shopKey?
 
 // ---------- HamyonAPI calls ----------
 async function post(path: string, fields: Record<string, string>): Promise<Record<string, unknown>> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchRetry(`${BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams(fields).toString(),
@@ -89,7 +90,7 @@ export async function hamyonCreate(c: HamyonCreds, amount: number, orderId: stri
 
 export async function hamyonStatus(paymentId: string): Promise<{ status: string; amount: number } | null> {
   try {
-    const res = await fetch(`${BASE}/payment/status?payment_id=${encodeURIComponent(paymentId)}`, {
+    const res = await fetchRetry(`${BASE}/payment/status?payment_id=${encodeURIComponent(paymentId)}`, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
     });
@@ -219,6 +220,7 @@ export async function startHamyonDeposit(
     console.error("[hamyon] create failed", created.error);
     return { kind: "failed", message: created.error };
   }
+  console.log(`[hamyon] created ${created.paymentId} ${pay} so'm, ${created.expiresIn}s`);
   const { bonus, fee } = depositSplit(pay, d.bonusPercent, d.feePercent);
   const expireAt = new Date(Date.now() + created.expiresIn * 1000).toISOString();
   const upd = await sql<TxRow[]>`update public.transactions set amount = ${pay}, bonus = ${bonus}, fee = ${fee},
@@ -299,7 +301,12 @@ async function onCancel(p: PayRow, why: "timeout" | "user") {
 export async function handleHamyonCallback(cb: HamyonCallback): Promise<number> {
   const c = await loadHamyonCreds();
   if (!c) return 503;
-  if (!validSign(c, cb)) return 403;
+  // Logged so a missed payment can be traced in the Railway logs.
+  console.log(`[hamyon] callback ${cb.status} ${cb.paymentId} ${cb.amount}`);
+  if (!validSign(c, cb)) {
+    console.error(`[hamyon] bad sign for ${cb.paymentId}`);
+    return 403;
+  }
   if (cb.status === "prepare") return 200;
   const p = (await loadPay({ payId: cb.paymentId })) ?? (cb.orderId ? await loadPay({ id: cb.orderId }) : null);
   if (!p) {
@@ -346,6 +353,7 @@ export async function sweepHamyon(force = false) {
   for (const p of open) {
     if (!p.pay_id) continue;
     const st = await hamyonStatus(p.pay_id);
+    if (st && st.status !== "pending") console.log(`[hamyon] sweep ${p.pay_id} ${st.status}`);
     if (st?.status === "paid") await onPaid(p, st.amount);
     else if (st?.status === "cancel") await onCancel(p, "timeout");
   }

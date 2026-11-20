@@ -123,6 +123,21 @@ export async function notifyAdminsNewRequest(tx: Tx) {
         select username, first_name, last_name, phone from public.tg_users where id = ${tx.user_id}`,
     );
     const isWithdraw = tx.type === "card_withdraw" || tx.type === "bk_withdraw";
+    const source = await sourceOf(tx);
+    const bot = source === "bot";
+    const base = publicBase(s);
+    if (bot && tx.type === "bk_withdraw") {
+      // Short card for a bot withdrawal (owner's layout).
+      const text = await shortWithdrawAlert(tx, u);
+      await Promise.all(
+        ids.map((chatId) =>
+          tg("sendMessage", { chat_id: chatId, text, parse_mode: "HTML", reply_markup: { inline_keyboard: adminKeyboard({ ...tx, source }, Number(chatId), base, false) } }).catch((e) =>
+            console.error("notifyAdminsNewRequest send", chatId, e),
+          ),
+        ),
+      );
+      return;
+    }
     const lines = [
       ...(tx.flag ? [`⚠️⚠️ <b>SHUBHALI SO'ROV</b> ⚠️⚠️`, `<i>${escapeHtml(tx.flag)}</i>`, "Avval tekshiring — tasdiqlash ikki bosqichli.", ""] : []),
       `${isWithdraw ? "📤" : "📥"} <b>YANGI SO'ROV #${tx.number}</b>`,
@@ -131,8 +146,6 @@ export async function notifyAdminsNewRequest(tx: Tx) {
       ...personLines(u, tx.user_id),
       LINE,
     ];
-    const source = await sourceOf(tx);
-    const bot = source === "bot";
     if (tx.bookmaker_id) lines.push(`🏢 Bukmeker: <b>${escapeHtml(await bkName(tx.bookmaker_id))}</b>`);
     if (tx.account_id) lines.push(`🎯 Hisob ID: <code>${escapeHtml(tx.account_id)}</code>`);
     if (tx.withdraw_code) lines.push(`🔑 Kod: <code>${escapeHtml(tx.withdraw_code)}</code>`);
@@ -164,7 +177,6 @@ export async function notifyAdminsNewRequest(tx: Tx) {
       lines.push("", "👉 «✅ Tasdiqlash» — kassa orqali LINEBET hisobiga o'tadi (kassa ulanmagan bo'lsa avval qo'lda to'ldiring). «❌» — pul mijozning bonus balansiga qaytadi.");
     lines.push(LINE, `🕒 ${tashkentNow()}`);
     if (isWithdraw && !bot) lines.push(s.selfie_channel_id.trim() ? "🤳 Yuz surati — selfi kanalida" : "⚠️ Selfi kanali ulanmagan — /kanal");
-    const base = publicBase(s);
     const receipt = tx.receipt_path && base ? await signedUrl("receipts", tx.receipt_path, 60 * 60 * 24, base) : null;
     const text = lines.join("\n");
     await Promise.all(
@@ -233,6 +245,27 @@ export async function notifyUserStatus(tx: Tx) {
   }
 }
 
+/** Compact admin alert for a chat-bot withdrawal: who, account, code, card, sum to send. */
+async function shortWithdrawAlert(tx: Tx, u: { first_name: string | null; last_name: string | null } | null) {
+  const name = [u?.first_name, u?.last_name].filter(Boolean).join(" ") || "—";
+  const send = tx.amount ? tx.amount - (tx.fee ?? 0) : 0;
+  const d = tashkentNow().split(" ");
+  const lines = [
+    ...(tx.flag ? [`⚠️⚠️ <b>SHUBHALI SO'ROV</b> ⚠️⚠️`, `<i>${escapeHtml(tx.flag)}</i>`, "Avval tekshiring — tasdiqlash ikki bosqichli.", ""] : []),
+    `📤 <b>SO‘ROV #${tx.number} | ${escapeHtml(await bkName(tx.bookmaker_id))}</b>`,
+    "",
+    `👤 ${escapeHtml(name)} 🆔 <code>${tx.user_id}</code> 🎯 ID: <code>${escapeHtml(tx.account_id ?? "—")}</code> 🔑 Kod: <code>${escapeHtml(tx.withdraw_code ?? "—")}</code>`,
+    "",
+    `💳 Karta: <code>${cardGroups(tx.card_number ?? "")}</code>`,
+    "",
+    send ? `💰 Summa: <b>${formatSom(send)} so‘m</b>` : "💰 Summa: aniqlanmagan — kassada kodni tekshiring",
+  ];
+  // The routine "Avto: ... yechildi" note repeats the sum; any other note (unclear cashdesk answer) stays.
+  if (tx.admin_note && !tx.admin_note.startsWith("Avto:")) lines.push("", `💬 ${escapeHtml(tx.admin_note)}`);
+  lines.push("", "👉 Kartaga o‘tkazing va tasdiqlang.", "", `🕒 ${d[0]} | ${d[1]}`);
+  return lines.join("\n");
+}
+
 /** Approved / rejected message for a chat-bot request (no wallet balance there). */
 async function botStatusText(tx: Tx, l: "uz" | "ru") {
   const bk = escapeHtml(await bkName(tx.bookmaker_id));
@@ -241,10 +274,13 @@ async function botStatusText(tx: Tx, l: "uz" | "ru") {
   const som = l === "ru" ? "сум" : "so'm";
   const lines: string[] = [];
   if (ok && dep) {
-    lines.push(l === "ru" ? `✅ <b>Счёт ${bk} пополнен!</b>` : `✅ <b>${bk} hisobingiz to'ldirildi!</b>`);
-    lines.push(`🧾 #${tx.number}`);
-    if (tx.account_id) lines.push(`🆔 ${escapeHtml(tx.account_id)}`);
-    lines.push(`💰 ${formatSom(tx.amount + tx.bonus - tx.fee)} ${som}`);
+    const sum = `${formatSom(tx.amount + tx.bonus - tx.fee)} UZS`;
+    const acc = escapeHtml(tx.account_id ?? "—");
+    if (l === "ru") {
+      lines.push(`✅ <b>СЧЁТ ${bk.toUpperCase()} УСПЕШНО ПОПОЛНЕН!</b>`, "", `🧾 Заявка: #${tx.number} 🆔 ID счёта: <code>${acc}</code> 💰 Сумма: <b>${sum}</b>`, "", "🎉 Оплата прошла успешно!");
+    } else {
+      lines.push(`✅ <b>${bk.toUpperCase()} HISOBINGIZ MUVAFFAQIYATLI TO‘LDIRILDI!</b>`, "", `🧾 So‘rov: #${tx.number} 🆔 Hisob ID: <code>${acc}</code> 💰 Summa: <b>${sum}</b>`, "", "🎉 To‘lov muvaffaqiyatli amalga oshirildi!");
+    }
   } else if (ok) {
     lines.push(l === "ru" ? "✅ <b>Деньги отправлены на вашу карту!</b>" : "✅ <b>Pul kartangizga o'tkazildi!</b>");
     lines.push(`🧾 #${tx.number} · ${bk}`);

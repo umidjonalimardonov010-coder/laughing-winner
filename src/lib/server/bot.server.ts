@@ -136,7 +136,7 @@ const TXT = {
     badCode: "❗️ Kod 4 ta harf yoki raqamdan iborat. Qaytadan kiriting:",
     checking: "⏳ Tekshirilmoqda...",
     wdDone: (n: number, amount: number, card: string) =>
-      `✅ So'rov #${n} qabul qilindi.\n💰 <b>${formatSom(amount)} UZS</b> kartangizga (${card}) tez orada o'tkaziladi.`,
+      `✅ <b>SO‘ROV #${n} MUVAFFAQIYATLI QABUL QILINDI!</b>\n\n💰 <b>${formatSom(amount)} UZS</b> mablag‘ tez orada kartangizga o‘tkaziladi.\n\n💳 Karta: ${card}`,
     wdPending: (n: number) => `✅ So'rov #${n} qabul qilindi.\nOperator tekshirib, pulni kartangizga o'tkazadi.`,
     wdRejected: (msg: string) => `❌ Yechib bo'lmadi: ${msg}\nKodni tekshirib, qaytadan urinib ko'ring.`,
     accountsTitle: "🧰 UZCARD & HUMO:",
@@ -206,7 +206,7 @@ const TXT = {
     badCode: "❗️ Код — 4 буквы или цифры. Введите ещё раз:",
     checking: "⏳ Проверяем...",
     wdDone: (n: number, amount: number, card: string) =>
-      `✅ Заявка #${n} принята.\n💰 <b>${formatSom(amount)} UZS</b> скоро поступят на вашу карту (${card}).`,
+      `✅ <b>ЗАЯВКА #${n} УСПЕШНО ПРИНЯТА!</b>\n\n💰 <b>${formatSom(amount)} UZS</b> скоро поступят на вашу карту.\n\n💳 Карта: ${card}`,
     wdPending: (n: number) => `✅ Заявка #${n} принята.\nОператор проверит и переведёт деньги на вашу карту.`,
     wdRejected: (msg: string) => `❌ Вывод не удался: ${msg}\nПроверьте код и попробуйте ещё раз.`,
     accountsTitle: "🧰 UZCARD & HUMO:",
@@ -566,8 +566,7 @@ async function showDeposit(chatId: number, l: L, s: Settings, user: TgUser) {
   const bks = (await bkList(s)).filter((b) => b.deposit_enabled);
   if (!bks.length) return say(chatId, TXT[l].noDep);
   if (!(await depositReady(s))) return say(chatId, TXT[l].depOff);
-  // With automatic payments and a single bookmaker the customer goes straight to the ID (KARVON PAY style).
-  if (bks.length === 1 && (await loadHamyonCreds())) return beginDeposit(chatId, l, s, user, bks[0]!);
+  // The customer always picks the bookmaker, even when only one is on (more are added later).
   await say(chatId, TXT[l].depPick, {
     inline_keyboard: rows(bks.map((b) => ({ text: `🚩 ${b.name}`, callback_data: `dep:${b.id}` })), 2),
   });

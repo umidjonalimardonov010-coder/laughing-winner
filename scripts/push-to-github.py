@@ -9,6 +9,7 @@ BRANCH = "main"
 GW = "https://connector-gateway.lovable.dev/github/"
 SKIP_PREFIXES = (".lovable/",)
 KEEP_REMOTE = {".env", "supabase/config.toml"}  # never touched by this script
+KEEP_REMOTE_PREFIXES = ("drizzle/migrations/",)  # managed by the migration tool, may be absent locally
 
 def api(method, path, body=None):
     req = urllib.request.Request(GW + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={
@@ -40,7 +41,7 @@ for f in local:
     entries.append({"path": f, "mode": "100644", "type": "blob", "sha": blob["sha"]})
     print("~", f)
 for f in set(remote) - set(local) - KEEP_REMOTE:
-    if f.startswith(SKIP_PREFIXES):
+    if f.startswith(SKIP_PREFIXES) or f.startswith(KEEP_REMOTE_PREFIXES):
         continue
     entries.append({"path": f, "mode": "100644", "type": "blob", "sha": None})
     print("-", f)

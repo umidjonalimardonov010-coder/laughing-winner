@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { isAmountBusyError, nextFreeAmount, parseHamyonCallback, payMinutes, paySummary, payText, signSource } from "./hamyon-rules";
+import { fixSwappedCreds, hamyonCheckMessage, isAmountBusyError, nextFreeAmount, parseHamyonCallback, payMinutes, paySummary, payText, signSource } from "./hamyon-rules";
 
 describe("HamyonAPI rules", () => {
   it("keeps the sum when it is free", () => {
@@ -42,5 +42,12 @@ describe("HamyonAPI rules", () => {
     expect(t).toContain("Summa: 70000 so`m");
     expect(t).toContain("Komissiya: 0 so`m (0%)");
     expect(t).toContain("<b>70000</b> summani <code>5614681076371107</code> kartaga");
+  });
+  it("puts shop ID and key back when typed into the wrong boxes", () => {
+    expect(fixSwappedCreds("80e131733ff605c9", "426")).toEqual({ shopId: "426", shopKey: "80e131733ff605c9", swapped: true });
+    expect(fixSwappedCreds(" 426 ", "80e131733ff605c9")).toEqual({ shopId: "426", shopKey: "80e131733ff605c9", swapped: false });
+  });
+  it("explains 'shop not found' as wrong ID or key", () => {
+    expect(hamyonCheckMessage("Do'kon topilmadi!")).toContain("Shop ID yoki Shop key noto'g'ri");
   });
 });

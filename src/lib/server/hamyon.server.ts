@@ -15,7 +15,7 @@ import { rejectBotRequest } from "./exchange.server";
 import { depositSplit } from "@/lib/exchange-rules";
 import { formatSom } from "@/lib/format";
 import { fetchRetry } from "@/lib/net-retry";
-import { cardDigits, isAmountBusyError, nextFreeAmount, payMinutes, payText, signSource, type HamyonCallback } from "@/lib/hamyon-rules";
+import { cardDigits, hamyonCheckMessage, isAmountBusyError, nextFreeAmount, payMinutes, payText, signSource, type HamyonCallback } from "@/lib/hamyon-rules";
 
 const BASE = "https://hamyon-api.uz";
 type L = "uz" | "ru";
@@ -105,6 +105,26 @@ export async function hamyonStatus(paymentId: string): Promise<{ status: string;
 export async function hamyonCancel(c: HamyonCreds, paymentId: string): Promise<{ ok: boolean; error?: string }> {
   const r = await post("/payment/cancel", { payment_id: paymentId, shop_key: c.shopKey });
   return r["error"] ? { ok: false, error: String(r["error"]) } : { ok: true };
+}
+
+/**
+ * Asks HamyonAPI whether this shop ID + key work: opens a 1 000 so'm payment and cancels it at once
+ * (HamyonAPI has no separate check endpoint). A "sum already open" answer also proves the shop exists.
+ */
+export async function hamyonVerify(c: HamyonCreds): Promise<{ ok: true } | { ok: false; error: string }> {
+  let r: Record<string, unknown>;
+  try {
+    r = await post("/payment/create", { shop_id: c.shopId, shop_key: c.shopKey, amount: "1000", order_id: `check-${Date.now()}` });
+  } catch (e) {
+    return { ok: false, error: `HamyonAPI bilan aloqa yo'q: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (r["payment_id"]) {
+    await hamyonCancel(c, String(r["payment_id"])).catch(() => undefined);
+    return { ok: true };
+  }
+  const err = String(r["error"] ?? r["message"] ?? "");
+  if (isAmountBusyError(err)) return { ok: true };
+  return { ok: false, error: hamyonCheckMessage(err) };
 }
 
 export function validSign(c: HamyonCreds, cb: HamyonCallback): boolean {

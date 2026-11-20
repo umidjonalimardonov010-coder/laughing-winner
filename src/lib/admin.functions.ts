@@ -20,7 +20,8 @@ import { approveRequest, isTelegramAdmin, rejectRequest, setUserBlocked } from "
 import { normalizePromo } from "./money-rules";
 import { cashdeskBalance, cashdeskFindUser, cashdeskVerdict, serverPublicIp } from "./server/cashdesk.server";
 import { loadCashdeskCreds, loadCashdeskDraft, panelCredValues, savePanelCreds } from "./server/cashdesk-config.server";
-import { hamyonPanelValues, loadHamyonCreds, saveHamyonCreds } from "./server/hamyon.server";
+import { hamyonPanelValues, hamyonVerify, loadHamyonCreds, saveHamyonCreds } from "./server/hamyon.server";
+import { fixSwappedCreds } from "./hamyon-rules";
 import { audienceCounts, cancelBroadcast, listBroadcasts, resumeBroadcasts, sendOne, startBroadcast } from "./server/broadcast.server";
 import { draftProblem } from "./broadcast-rules";
 
@@ -648,12 +649,31 @@ export const adminSaveHamyon = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await requireAdmin();
-    if (data.clear) await saveHamyonCreds({ shopId: "", shopKey: "" });
-    // Empty key field = keep the saved one.
-    else await saveHamyonCreds({ shopId: data.shopId, shopKey: data.shopKey ? data.shopKey : undefined });
+    if (data.clear) {
+      await saveHamyonCreds({ shopId: "", shopKey: "" });
+      clearCache("hamyon-");
+      return { ok: true, swapped: false };
+    }
+    // Empty key field = keep the saved one (or the env var).
+    const saved = await hamyonPanelValues();
+    const keyIn = data.shopKey || saved.shopKey || process.env["HAMYON_SHOP_KEY"]?.trim() || "";
+    const c = fixSwappedCreds(data.shopId, keyIn);
+    if (!c.shopId) throw new Error("Shop ID kiriting");
+    if (!c.shopKey) throw new Error("Shop key kiriting");
+    // Checked with HamyonAPI before saving, so wrong values never switch the bot to a broken payment.
+    const check = await hamyonVerify(c);
+    if (!check.ok) throw new Error(check.error);
+    await saveHamyonCreds({ shopId: c.shopId, shopKey: c.shopKey });
     clearCache("hamyon-");
-    return { ok: true };
+    return { ok: true, swapped: c.swapped };
   });
+
+export const adminCheckHamyon = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  const c = await loadHamyonCreds();
+  if (!c) return { ok: false, error: "Shop ID va Shop key saqlanmagan" };
+  return hamyonVerify(c);
+});
 
 // ---------- Promo codes ----------
 export const adminListPromos = createServerFn({ method: "POST" }).handler(async () => {

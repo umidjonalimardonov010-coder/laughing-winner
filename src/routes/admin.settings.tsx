@@ -11,6 +11,7 @@ import {
   adminHamyonStatus,
   adminSaveCashdesk,
   adminSaveHamyon,
+  adminCheckHamyon,
   adminSaveSettings,
   adminTestCashdesk,
 } from "@/lib/admin.functions";
@@ -292,7 +293,8 @@ function HamyonPanel() {
   const q = useQuery({ queryKey: ["admin-hamyon"], queryFn: () => adminHamyonStatus() });
   const [shopId, setShopId] = useState("");
   const [shopKey, setShopKey] = useState("");
-  const [busy, setBusy] = useState<"" | "save" | "clear">("");
+  const [busy, setBusy] = useState<"" | "save" | "clear" | "check">("");
+  const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null);
   const d = q.data;
   useEffect(() => {
     if (d) setShopId(d.shopId);
@@ -301,12 +303,32 @@ function HamyonPanel() {
   const save = async (clear = false) => {
     setBusy(clear ? "clear" : "save");
     try {
-      await adminSaveHamyon({ data: { shopId, shopKey, clear } });
+      setCheck(null);
+      const r = await adminSaveHamyon({ data: { shopId, shopKey, clear } });
       setShopKey("");
-      toast.success(clear ? "HamyonAPI o'chirildi" : "HamyonAPI saqlandi");
+      if (clear) toast.success("HamyonAPI o'chirildi");
+      else {
+        const text = r.swapped ? "Ulandi ✓ (Shop ID va Shop key joyi almashgan edi — to'g'rilandi)" : "Ulandi ✓ HamyonAPI kalitlarni qabul qildi";
+        setCheck({ ok: true, text });
+        toast.success(text);
+      }
       await qc.invalidateQueries({ queryKey: ["admin-hamyon"] });
     } catch (e) {
-      toast.error(errMsg(e));
+      const text = errMsg(e);
+      if (!clear) setCheck({ ok: false, text });
+      toast.error(text);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const runCheck = async () => {
+    setBusy("check");
+    try {
+      const r = await adminCheckHamyon();
+      setCheck(r.ok ? { ok: true, text: "Ulangan ✓ HamyonAPI kalitlarni qabul qildi" } : { ok: false, text: r.error });
+    } catch (e) {
+      setCheck({ ok: false, text: errMsg(e) });
     } finally {
       setBusy("");
     }
@@ -367,6 +389,15 @@ function HamyonPanel() {
             {d?.configured && (
               <button
                 disabled={!!busy}
+                onClick={runCheck}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl border border-border px-4 font-semibold disabled:opacity-60"
+              >
+                {busy === "check" ? <Loader2 className="size-4 animate-spin" /> : null} Tekshirish
+              </button>
+            )}
+            {d?.configured && (
+              <button
+                disabled={!!busy}
                 onClick={() => {
                   if (confirm("HamyonAPI o'chirilsinmi? Hisob to'ldirish qo'lda rejimga o'tadi.")) save(true);
                 }}
@@ -376,6 +407,12 @@ function HamyonPanel() {
               </button>
             )}
           </div>
+          {check && (
+            <p className={`flex items-start gap-2 text-sm ${check.ok ? "text-primary" : "text-destructive"}`}>
+              {check.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}
+              <span>{check.text}</span>
+            </p>
+          )}
           <div className="space-y-3 rounded-xl border border-border p-3">
             <div className="text-sm">
               @HamyonAPIBot → do'kon sozlamalariga shu ikki manzilni qo'ying (pul tushganini bot shu orqali biladi):

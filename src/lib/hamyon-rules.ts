@@ -15,6 +15,23 @@ export function isAmountBusyError(message: string): boolean {
   return m.includes("summa") && (m.includes("ochiq") || m.includes("mavjud") || m.includes("band"));
 }
 
+/** Shop ID is a short number, the shop key is a long hex string — put them back when typed into the wrong boxes. */
+export function fixSwappedCreds(shopId: string, shopKey: string): { shopId: string; shopKey: string; swapped: boolean } {
+  const id = shopId.trim();
+  const key = shopKey.trim();
+  if (/^\d{1,10}$/.test(key) && /^[a-f0-9]{12,}$/i.test(id)) return { shopId: key, shopKey: id, swapped: true };
+  return { shopId: id, shopKey: key, swapped: false };
+}
+
+/** HamyonAPI's answer to the connection check, in words the owner understands. */
+export function hamyonCheckMessage(error: string): string {
+  const m = error.toLowerCase();
+  if (m.includes("do'kon topilmadi") || m.includes("dokon topilmadi") || m.includes("shop")) {
+    return "HamyonAPI do'konni topmadi: Shop ID yoki Shop key noto'g'ri. @HamyonAPIBot'dagi qiymatlarni tekshiring.";
+  }
+  return `HamyonAPI javobi: ${error || "javob kelmadi"}`;
+}
+
 /** Whole minutes shown to the customer — the real HamyonAPI time, never more (late money is lost). */
 export function payMinutes(expiresInSec: number | null | undefined): number {
   const s = Number(expiresInSec);

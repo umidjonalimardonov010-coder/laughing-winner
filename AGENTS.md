@@ -46,7 +46,7 @@ use the editor.
 - Promo use is claimed inside the same `sql.begin` as `create_debit_request` and released on reject — so a failed or refused deposit never eats a promo use.
 - The customer side is the chat bot only (LordPay style, `src/lib/server/bot.server.ts`); the WALLET mini app was removed — so there is no wallet balance for new requests.
 - Bot requests carry `transactions.source = 'bot'` and are approved/rejected by `approveBotRequest`/`rejectBotRequest` in `src/lib/server/exchange.server.ts`, never by the SQL balance functions — so card ⇄ bookmaker money never touches `tg_users.balance`.
-- Bot deposit: HamyonAPI (`hamyon.server.ts`, keys from panel or HAMYON_* env) gives the card; signed callback or 1-min status sweep claims `pay_state` once, then cashdesk auto top-up — so a payment is handled exactly once. Without it: manual card + `pickPayAmount` tail.
+- Bot deposit: HamyonAPI (`hamyon.server.ts`, keys from panel or HAMYON_* env, saved only after `hamyonVerify` opens+cancels a test payment) gives the card; signed callback or 1-min status sweep claims `pay_state` once, then cashdesk auto top-up — so a payment is handled exactly once. Without it: manual card + `pickPayAmount` tail.
 
 <!-- AGENT-MEMORY:BEGIN -->
 - Bonus menu money uses `tg_users.balance` as the bonus balance; all changes live in `src/lib/server/bonus.server.ts` (pure rules in `src/lib/bonus-rules.ts`). Sending it to LINEBET is a `bk_deposit` with `source = 'bonus'` (balance taken at creation, refunded atomically on reject); the referral reward is paid from `approveRequest` on a friend's first approved bot deposit, guarded by `tg_users.referral_paid` — so no bonus is ever paid twice.

@@ -67,3 +67,8 @@
 
 ## 2026-11-17 request: admin messages
 - [x] Admin panel «Xabar yuborish»: everyone (all / uz / ru) or one person, text formatting, photo/video, link button, Telegram preview, test to admin, progress + stop, history
+
+## 2026-11-21 request: admin design + review
+- [x] Admin panel LINEBET design: stadium background, 3D picture icons instead of emojis
+- [x] Landing page no longer blanks when the connection drops
+- [ ] Owner question: are payments working / pro level, and what else to add to the bot (answered in chat)

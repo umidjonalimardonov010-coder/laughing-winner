@@ -21,7 +21,14 @@ export const Route = createFileRoute("/")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  loader: () => publicInfo(),
+  // A dropped connection must not blank the landing page: fall back to "no bot link".
+  loader: async () => {
+    try {
+      return await publicInfo();
+    } catch {
+      return { bot_username: null as string | null };
+    }
+  },
   component: Index,
 });
 

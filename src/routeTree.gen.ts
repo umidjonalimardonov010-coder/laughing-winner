@@ -20,6 +20,7 @@ import { Route as AdminRequestsRouteImport } from './routes/admin.requests'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
 import { Route as AdminVideosRouteImport } from './routes/admin.videos'
+import { Route as AdminVipRouteImport } from './routes/admin.vip'
 import { Route as ApiPublicHamyonCompleteRouteImport } from './routes/api/public/hamyon/complete'
 import { Route as ApiPublicHamyonPrepareRouteImport } from './routes/api/public/hamyon/prepare'
 import { Route as ApiPublicMediaSplatRouteImport } from './routes/api/public/media/$'
@@ -81,6 +82,11 @@ const AdminVideosRoute = AdminVideosRouteImport.update({
   path: '/videos',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminVipRoute = AdminVipRouteImport.update({
+  id: '/vip',
+  path: '/vip',
+  getParentRoute: () => AdminRoute,
+} as any)
 const ApiPublicHamyonCompleteRoute = ApiPublicHamyonCompleteRouteImport.update({
   id: '/api/public/hamyon/complete',
   path: '/api/public/hamyon/complete',
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
+  '/admin/vip': typeof AdminVipRoute
   '/admin/': typeof AdminIndexRoute
   '/api/public/hamyon/complete': typeof ApiPublicHamyonCompleteRoute
   '/api/public/hamyon/prepare': typeof ApiPublicHamyonPrepareRoute
@@ -136,6 +143,7 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
+  '/admin/vip': typeof AdminVipRoute
   '/admin': typeof AdminIndexRoute
   '/api/public/hamyon/complete': typeof ApiPublicHamyonCompleteRoute
   '/api/public/hamyon/prepare': typeof ApiPublicHamyonPrepareRoute
@@ -155,6 +163,7 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/videos': typeof AdminVideosRoute
+  '/admin/vip': typeof AdminVipRoute
   '/admin/': typeof AdminIndexRoute
   '/api/public/hamyon/complete': typeof ApiPublicHamyonCompleteRoute
   '/api/public/hamyon/prepare': typeof ApiPublicHamyonPrepareRoute
@@ -175,6 +184,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/users'
     | '/admin/videos'
+    | '/admin/vip'
     | '/admin/'
     | '/api/public/hamyon/complete'
     | '/api/public/hamyon/prepare'
@@ -192,6 +202,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/users'
     | '/admin/videos'
+    | '/admin/vip'
     | '/admin'
     | '/api/public/hamyon/complete'
     | '/api/public/hamyon/prepare'
@@ -210,6 +221,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/users'
     | '/admin/videos'
+    | '/admin/vip'
     | '/admin/'
     | '/api/public/hamyon/complete'
     | '/api/public/hamyon/prepare'
@@ -307,6 +319,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminVideosRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/vip': {
+      id: '/admin/vip'
+      path: '/vip'
+      fullPath: '/admin/vip'
+      preLoaderRoute: typeof AdminVipRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/api/public/hamyon/complete': {
       id: '/api/public/hamyon/complete'
       path: '/api/public/hamyon/complete'
@@ -354,6 +373,7 @@ interface AdminRouteChildren {
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminVideosRoute: typeof AdminVideosRoute
+  AdminVipRoute: typeof AdminVipRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -366,6 +386,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminSettingsRoute: AdminSettingsRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminVideosRoute: AdminVideosRoute,
+  AdminVipRoute: AdminVipRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 

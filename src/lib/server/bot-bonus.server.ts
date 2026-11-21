@@ -1,4 +1,4 @@
-// "💰 BONUS OLISH" screens in the chat bot: balance (→ LINEBET), invite friends, daily bonus.
+// "💰 BONUS OLISH" screens in the chat bot: balance (→ LINEBET), invite friends, daily bonus, VIP level, weekly contest.
 import type { Settings } from "./settings.server";
 import { bonusBalance, claimDailyBonus, referralStats } from "./bonus.server";
 import { resolveBotUsername } from "./bot-username.server";
@@ -6,6 +6,8 @@ import { escapeHtml } from "./telegram.server";
 import { bonusConfig } from "@/lib/bonus-rules";
 import { referralLink, shareLink } from "@/lib/referral";
 import { formatSom } from "@/lib/format";
+import { vipStatus } from "./vip.server";
+import { myContest } from "./contest.server";
 
 type L = "uz" | "ru";
 type Screen = { text: string; markup?: unknown };
@@ -116,4 +118,78 @@ export async function dailyScreen(l: L, s: Settings, userId: number): Promise<Sc
         ? `🎉 <b>Ежедневный бонус: +${formatSom(r.amount)} ${som}</b>\n💰 Бонусный баланс: <b>${formatSom(r.balance)} ${som}</b>\n\nПриходите завтра снова!`
         : `🎉 <b>Kunlik bonus: +${formatSom(r.amount)} ${som}</b>\n💰 Bonus balans: <b>${formatSom(r.balance)} ${som}</b>\n\nErtaga yana keling!`,
   };
+}
+
+// ---------- VIP level ----------
+const LEVEL_MARK = ["🥉", "🥈", "🥇", "💎", "👑"];
+const mark = (i: number) => LEVEL_MARK[Math.min(i, LEVEL_MARK.length - 1)] ?? "⭐️";
+
+export async function vipScreen(l: L, s: Settings, userId: number): Promise<Screen> {
+  const v = await vipStatus(userId, s);
+  const som = l === "ru" ? "сум" : "so'm";
+  if (!v.enabled) return { text: l === "ru" ? "👑 VIP-уровни скоро появятся." : "👑 VIP darajalar tez orada ishga tushadi." };
+  const { pos } = v;
+  const list = v.levels
+    .map((lv, i) => `${i === pos.index ? "▶️" : mark(i)} ${escapeHtml(lv.name)} — ${l === "ru" ? `от ${formatSom(lv.from)} сум` : `${formatSom(lv.from)} so'mdan`} · <b>${lv.pct}%</b>`)
+    .join("\n");
+  const head =
+    l === "ru"
+      ? [
+          pos.level ? `👑 <b>Ваш уровень: ${escapeHtml(pos.level.name)}</b>` : "👑 <b>У вас пока нет уровня</b>",
+          pos.level ? `🎁 Кэшбэк: <b>${pos.level.pct}%</b> с каждого пополнения — на бонусный баланс` : "",
+          `📊 Всего пополнено: <b>${formatSom(v.turnover)} ${som}</b>`,
+          pos.next ? `⬆️ До уровня ${escapeHtml(pos.next.name)} (${pos.next.pct}%): ещё <b>${formatSom(pos.toNext)} ${som}</b>` : "🏁 У вас максимальный уровень!",
+        ]
+      : [
+          pos.level ? `👑 <b>Darajangiz: ${escapeHtml(pos.level.name)}</b>` : "👑 <b>Hozircha darajangiz yo'q</b>",
+          pos.level ? `🎁 Keshbek: har to'ldirishdan <b>${pos.level.pct}%</b> — bonus balansga` : "",
+          `📊 Jami to'ldirgansiz: <b>${formatSom(v.turnover)} ${som}</b>`,
+          pos.next ? `⬆️ ${escapeHtml(pos.next.name)} (${pos.next.pct}%) darajasigacha yana <b>${formatSom(pos.toNext)} ${som}</b>` : "🏁 Siz eng yuqori darajadasiz!",
+        ];
+  return { text: `${head.filter(Boolean).join("\n")}\n\n<b>${l === "ru" ? "Уровни" : "Darajalar"}:</b>\n${list}` };
+}
+
+// ---------- Weekly contest ----------
+export async function contestScreen(l: L, s: Settings, userId: number): Promise<Screen> {
+  const c = await myContest(userId, s);
+  const ru = l === "ru";
+  const som = ru ? "сум" : "so'm";
+  if (!c.config.enabled) return { text: ru ? "🏆 Конкурс сейчас не проводится." : "🏆 Hozircha konkurs o'tkazilmayapti." };
+  const medals = ["🥇", "🥈", "🥉"];
+  const prizes = c.config.prizes.map((p, i) => `${medals[i] ?? `${i + 1}.`} ${formatSom(p)} ${som}`).join("\n");
+  const ms = Math.max(0, c.week.end.getTime() - Date.now());
+  const d = Math.floor(ms / 86_400_000);
+  const h = Math.floor((ms % 86_400_000) / 3600_000);
+  const chance = c.totalTickets && c.myTickets ? Math.max(1, Math.round((c.myTickets / c.totalTickets) * 100)) : 0;
+  const last = c.last?.winners.length
+    ? `\n\n${ru ? "🏅 Победители прошлой недели" : "🏅 O'tgan hafta g'oliblari"}:\n${c.last.winners.map((w) => `${medals[w.place - 1] ?? `${w.place}.`} ${escapeHtml(w.name)} — ${formatSom(w.prize)} ${som}`).join("\n")}`
+    : "";
+  const lines = ru
+    ? [
+        "🏆 <b>Недельный конкурс</b>",
+        "",
+        `Пополняйте счёт через бота: каждые <b>${formatSom(c.config.ticketSom)} ${som}</b> = 1 билет 🎟`,
+        c.config.minSom > c.config.ticketSom ? `Участие — от ${formatSom(c.config.minSom)} ${som} за неделю.` : "",
+        "",
+        `<b>Призы:</b>\n${prizes}`,
+        "",
+        `💰 Вы пополнили за неделю: <b>${formatSom(c.mySum)} ${som}</b>`,
+        `🎟 Ваши билеты: <b>${c.myTickets}</b> из ${c.totalTickets}${chance ? ` (~${chance}%)` : ""}`,
+        `👥 Участников: ${c.entrants}`,
+        c.closed ? "✅ Итоги этой недели уже подведены." : `⏳ Розыгрыш через <b>${d} д ${h} ч</b> (понедельник 00:00)`,
+      ]
+    : [
+        "🏆 <b>Haftalik konkurs</b>",
+        "",
+        `Bot orqali hisob to'ldiring: har <b>${formatSom(c.config.ticketSom)} ${som}</b> = 1 chipta 🎟`,
+        c.config.minSom > c.config.ticketSom ? `Qatnashish — haftasiga kamida ${formatSom(c.config.minSom)} ${som}.` : "",
+        "",
+        `<b>Sovrinlar:</b>\n${prizes}`,
+        "",
+        `💰 Shu hafta to'ldirganingiz: <b>${formatSom(c.mySum)} ${som}</b>`,
+        `🎟 Chiptalaringiz: <b>${c.myTickets}</b> / ${c.totalTickets}${chance ? ` (~${chance}%)` : ""}`,
+        `👥 Qatnashchilar: ${c.entrants}`,
+        c.closed ? "✅ Bu hafta g'oliblar aniqlangan." : `⏳ G'oliblar <b>${d} kun ${h} soatdan</b> keyin aniqlanadi (dushanba 00:00)`,
+      ];
+  return { text: lines.filter((x, i, a) => x !== "" || a[i - 1] !== "").join("\n") + last };
 }

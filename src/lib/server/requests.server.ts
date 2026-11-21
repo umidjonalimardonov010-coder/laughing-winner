@@ -9,6 +9,7 @@ import { releasePromo } from "./safety.server";
 import { approveBotRequest, rejectBotRequest, txSource } from "./exchange.server";
 import { notifyBonusRefund, rejectBonusWithdraw, rewardReferrer } from "./bonus.server";
 import { inBackground } from "./notify.server";
+import { payCashback } from "./vip.server";
 
 export async function approveRequest(id: string, amount = 0, note = ""): Promise<TxRow> {
   // Chat-bot requests move money between the card and the bookmaker directly (no wallet balance).
@@ -18,7 +19,11 @@ export async function approveRequest(id: string, amount = 0, note = ""): Promise
     const done = await approveBotRequest(id, amount, note);
     await notifyUserStatus(done);
     // A friend's first approved deposit pays the inviter's referral reward (once).
-    if (source === "bot" && done.type === "bk_deposit") inBackground("referral", () => rewardReferrer(done.user_id));
+    if (source === "bot" && done.type === "bk_deposit") {
+      inBackground("referral", () => rewardReferrer(done.user_id));
+      // VIP cashback for this deposit (once) and a level-up message.
+      inBackground("cashback", () => payCashback(done));
+    }
     return done;
   }
   const t = await maybeOne(

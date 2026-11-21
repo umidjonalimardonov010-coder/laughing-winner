@@ -97,6 +97,19 @@ export function errMsg(e: unknown) {
     promo_bad_date: "Muddat sanasi noto'g'ri",
     user_not_found: "Foydalanuvchi topilmadi",
     no_users: "Bu guruhda foydalanuvchi yo'q",
+    vip_bad_line: "Daraja qatori noto'g'ri. Shunday yozing: Nomi | summadan | foiz",
+    vip_bad_from: "Daraja summasi noto'g'ri",
+    vip_bad_pct: "Keshbek 0 dan 20% gacha bo'lsin",
+    vip_too_many: "Ko'pi bilan 10 ta daraja",
+    vip_same_from: "Ikki daraja bir xil summadan boshlanmasin",
+    vip_no_levels: "Yoqishdan oldin kamida bitta daraja qo'shing",
+    contest_bad_prize: "Sovrin summasi faqat raqam bo'lsin",
+    contest_too_many: "Ko'pi bilan 10 ta sovrin",
+    contest_no_prizes: "Yoqishdan oldin kamida bitta sovrin kiriting",
+    contest_bad_ticket: "1 chipta narxi kamida 1 000 so'm bo'lsin",
+    contest_bad_min: "Minimal summa faqat raqam bo'lsin",
+    contest_off: "Avval konkursni yoqing va saqlang",
+    contest_already_drawn: "Bu hafta g'oliblar allaqachon aniqlangan",
   };
   for (const [k, v] of Object.entries(map)) if (m.includes(k)) return v;
   return m || "Xatolik yuz berdi";

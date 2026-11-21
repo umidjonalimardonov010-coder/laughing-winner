@@ -26,6 +26,14 @@ export const SETTING_KEYS = [
   "bonus_withdraw_min",
   "bonus_withdraw_mode",
   "required_channels",
+  "vip_enabled",
+  "vip_levels",
+  "contest_enabled",
+  "contest_prizes",
+  "contest_ticket_som",
+  "contest_min_som",
+  "contest_announce",
+  "contest_since",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 export type Settings = Record<SettingKey, string>;

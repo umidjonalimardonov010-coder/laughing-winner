@@ -36,7 +36,8 @@ import {
 } from "./exchange.server";
 import type { Bookmaker } from "./wallet-auth.server";
 import { BONUS_BK, autoSendBonus, bonusBalance, createBonusWithdraw } from "./bonus.server";
-import { BONUS_TXT, balanceScreen, dailyScreen, inviteScreen } from "./bot-bonus.server";
+import { BONUS_TXT, balanceScreen, contestScreen, dailyScreen, inviteScreen, vipScreen } from "./bot-bonus.server";
+import { startContestWatcher } from "./contest.server";
 import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
 import { cancelByUser, cancelKeyboard, loadHamyonCreds, openPayment, savePayMessage, startHamyonDeposit, startHamyonWatcher } from "./hamyon.server";
 import { paySummary } from "@/lib/hamyon-rules";
@@ -63,6 +64,8 @@ const MENU = {
     balance: "💳 BALANS",
     invite: "👥 DO'STIMNI CHAQIRISH",
     daily: "🎁 KUNLIK BONUS",
+    vip: "👑 VIP DARAJA",
+    contest: "🏆 KONKURS",
   },
   ru: {
     deposit: "📮 Пополнить счёт",
@@ -78,6 +81,8 @@ const MENU = {
     bonus: "💰 ПОЛУЧИТЬ БОНУС",
     balance: "💳 БАЛАНС",
     invite: "👥 ПРИГЛАСИТЬ ДРУГА",
+    vip: "👑 VIP УРОВЕНЬ",
+    contest: "🏆 КОНКУРС",
     daily: "🎁 ЕЖЕДНЕВНЫЙ БОНУС",
   },
 };
@@ -249,7 +254,12 @@ function mainKeyboard(l: L, admin = false) {
 function bonusKeyboard(l: L) {
   const m = MENU[l];
   return {
-    keyboard: [[{ text: m.balance, style: "primary" }], [{ text: m.invite }, { text: m.daily, style: "success" }], [{ text: m.back }]],
+    keyboard: [
+      [{ text: m.balance, style: "primary" }],
+      [{ text: m.invite }, { text: m.daily, style: "success" }],
+      [{ text: m.vip }, { text: m.contest, style: "success" }],
+      [{ text: m.back }],
+    ],
     resize_keyboard: true,
     is_persistent: true,
   };
@@ -950,6 +960,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   const s = await getSettings();
   const base = httpsBase(s, fallbackOrigin);
   startHamyonWatcher();
+  startContestWatcher();
   resumeBroadcasts();
 
   // Bot made admin of a channel by one of our admins → that channel receives the selfies.
@@ -1076,9 +1087,17 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     if (action === "ops" || action === "history" || action === "rates") return sendMainMenu(chatId, l, s);
     if (action === "contact") return showContact(chatId, l, s);
     if (action === "bonus") return say(chatId, BONUS_TXT[l].menu, bonusKeyboard(l));
-    if (action === "balance" || action === "invite" || action === "daily") {
+    if (action === "balance" || action === "invite" || action === "daily" || action === "vip" || action === "contest") {
       const screen =
-        action === "balance" ? await balanceScreen(l, s, user.id) : action === "invite" ? await inviteScreen(l, s, user.id) : await dailyScreen(l, s, user.id);
+        action === "balance"
+          ? await balanceScreen(l, s, user.id)
+          : action === "invite"
+            ? await inviteScreen(l, s, user.id)
+            : action === "vip"
+              ? await vipScreen(l, s, user.id)
+              : action === "contest"
+                ? await contestScreen(l, s, user.id)
+                : await dailyScreen(l, s, user.id);
       return say(chatId, screen.text, screen.markup);
     }
     return;

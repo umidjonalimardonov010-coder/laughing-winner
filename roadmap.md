@@ -47,7 +47,7 @@
 - [x] Rebuild the bot like the screenshots: language → phone → main keyboard (Hisob to'ldirish, Hisob raqamlar, Yechib olish, Amallar/Kurs-Zahira, Bog'lanish), BK list, saved BK account IDs
 - [ ] Push to GitHub once the bot is done
 - [ ] Bring over the per-bookmaker cashdesk keys work from the other Lovable project — waiting: user pushes it to GitHub from that project
-- [ ] railway/setup.sql: add the bot tables (bot_state, user_accounts, etc.)
+- [x] railway/setup.sql: bot tables (bot_state etc.) are created by migrations.server.ts on Railway
 - [ ] Finish the "withdraw request kept when keys are refused" check
 - [x] Bot "💰 Bonus olish" menu: Balans (+ Yechib olish → Linebet), Do'stimni chaqirish (fixed som per referral, set in admin), Kunlik bonus (min–max som, set in admin)
 - [x] Bot «Kurs | Zahira»: admin types sell/buy rate lines in Sozlamalar → Kurs
@@ -71,4 +71,10 @@
 ## 2026-11-21 request: admin design + review
 - [x] Admin panel LINEBET design: stadium background, 3D picture icons instead of emojis
 - [x] Landing page no longer blanks when the connection drops
-- [ ] Owner question: are payments working / pro level, and what else to add to the bot (answered in chat)
+- [x] Owner question: are payments working / pro level, and what else to add to the bot (answered in chat)
+
+## 2026-11-21 request: VIP + contest (admin panel)
+- [x] VIP levels + cashback to bonus balance, level-up message, bot «👑 VIP DARAJA»
+- [x] Weekly contest: tickets per som, auto draw Monday 00:00 Tashkent, prizes to bonus balance, winners told (+ optional announce to all), bot «🏆 KONKURS»
+- [x] Admin page «VIP va Konkurs»: switches, levels editor, prizes, this week's tickets, draw now, history
+- [ ] Owner switches VIP and contest on in the panel and sets the real levels / prizes (both off until then)

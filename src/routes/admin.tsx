@@ -24,7 +24,7 @@ export const Route = createFileRoute("/admin")({
   component: AdminLayout,
 });
 
-type AdminPath = "/admin" | "/admin/requests" | "/admin/users" | "/admin/messages" | "/admin/bookmakers" | "/admin/promos" | "/admin/replies" | "/admin/videos" | "/admin/settings";
+type AdminPath = "/admin" | "/admin/requests" | "/admin/users" | "/admin/messages" | "/admin/bookmakers" | "/admin/promos" | "/admin/replies" | "/admin/videos" | "/admin/settings" | "/admin/vip";
 
 const NAV: readonly { to: AdminPath; label: string; icon: IconName; exact?: boolean }[] = [
   { to: "/admin", label: "Hisobot", icon: "chart", exact: true },
@@ -33,6 +33,7 @@ const NAV: readonly { to: AdminPath; label: string; icon: IconName; exact?: bool
   { to: "/admin/messages", label: "Xabar yuborish", icon: "megaphone" },
   { to: "/admin/bookmakers", label: "Bukmekerlar", icon: "stadium" },
   { to: "/admin/promos", label: "Promo-kodlar", icon: "ticket" },
+  { to: "/admin/vip", label: "VIP va Konkurs", icon: "coins" },
   { to: "/admin/replies", label: "Avto-javoblar", icon: "chat" },
   { to: "/admin/videos", label: "Videolar", icon: "video" },
   { to: "/admin/settings", label: "Sozlamalar", icon: "gear" },

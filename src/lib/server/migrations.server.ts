@@ -219,6 +219,31 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
       await sql`create index if not exists broadcasts_running_idx on public.broadcasts(status) where status = 'running'`;
     },
   },
+  {
+    // VIP cashback (paid once per deposit) and the weekly contest (one draw per week).
+    id: "2026-11-21-vip-contest",
+    run: async () => {
+      await sql`create table if not exists public.cashback_paid (
+        tx_id uuid primary key references public.transactions(id) on delete cascade,
+        user_id bigint not null,
+        amount bigint not null,
+        level text,
+        created_at timestamptz not null default now()
+      )`;
+      await sql`alter table public.cashback_paid enable row level security`;
+      await sql`create table if not exists public.contest_draws (
+        week_start date primary key,
+        closed_at timestamptz not null default now(),
+        entrants integer not null default 0,
+        tickets integer not null default 0,
+        winners jsonb not null default '[]'::jsonb,
+        manual boolean not null default false
+      )`;
+      await sql`alter table public.contest_draws enable row level security`;
+      await sql`create index if not exists transactions_bot_dep_idx on public.transactions(user_id, processed_at)
+        where type = 'bk_deposit' and status = 'approved' and source = 'bot'`;
+    },
+  },
 ];
 
 let done: Promise<void> | undefined;

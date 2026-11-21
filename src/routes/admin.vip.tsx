@@ -82,6 +82,7 @@ function VipPanel({ data }: { data: Overview }) {
       <p className="text-sm text-muted-foreground">
         Mijoz bot orqali jami qancha to'ldirgan bo'lsa, shu darajaga chiqadi. Har tasdiqlangan to'ldirishdan foizi bonus balansiga o'zi tushadi
         (keyin LINEBET'ga yechib oladi). Yangi darajaga chiqqanda bot tabrik yuboradi.
+        <b className="block mt-1 text-foreground">«VIP DARAJA» tugmasi botda faqat shu yerda yoqib saqlaganingizda chiqadi.</b>
       </p>
       <div className="space-y-2">
         <div className="grid grid-cols-[1fr_1.15fr_4.5rem_2.5rem] sm:grid-cols-[1fr_1fr_5.5rem_2.5rem] gap-2 px-1 text-xs font-medium text-muted-foreground">
@@ -172,6 +173,7 @@ function ContestPanel({ data }: { data: Overview }) {
         <p className="text-sm text-muted-foreground">
           Hafta davomida (dushanba–yakshanba) bot orqali to'ldirgan mijozlar chipta oladi. Dushanba 00:00 da bot g'oliblarni o'zi tanlaydi — chiptasi
           ko'p bo'lganning imkoniyati katta. Sovrin bonus balansga tushadi.
+          <b className="block mt-1 text-foreground">«KONKURS» tugmasi botda faqat yoqib, sovrin yozib saqlaganingizda chiqadi.</b>
         </p>
         <label className="block space-y-1.5">
           <span className="text-sm font-medium">Sovrinlar (1-o'rin, 2-o'rin, ... vergul bilan)</span>

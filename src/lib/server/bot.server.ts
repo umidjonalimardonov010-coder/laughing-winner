@@ -37,6 +37,7 @@ import {
 import type { Bookmaker } from "./wallet-auth.server";
 import { BONUS_BK, autoSendBonus, bonusBalance, createBonusWithdraw } from "./bonus.server";
 import { BONUS_TXT, balanceScreen, contestScreen, dailyScreen, inviteScreen, vipScreen } from "./bot-bonus.server";
+import { bonusMenuFlags } from "@/lib/bonus-menu";
 import { startContestWatcher } from "./contest.server";
 import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
 import { cancelByUser, cancelKeyboard, loadHamyonCreds, openPayment, savePayMessage, startHamyonDeposit, startHamyonWatcher } from "./hamyon.server";
@@ -251,13 +252,16 @@ function mainKeyboard(l: L, admin = false) {
   };
 }
 
-function bonusKeyboard(l: L) {
+/** VIP / Konkurs buttons appear only when the admin switched them on (with levels / prizes). */
+function bonusKeyboard(l: L, s: Settings) {
   const m = MENU[l];
+  const f = bonusMenuFlags(s);
+  const extra = [...(f.vip ? [{ text: m.vip }] : []), ...(f.contest ? [{ text: m.contest, style: "success" }] : [])];
   return {
     keyboard: [
       [{ text: m.balance, style: "primary" }],
       [{ text: m.invite }, { text: m.daily, style: "success" }],
-      [{ text: m.vip }, { text: m.contest, style: "success" }],
+      ...(extra.length ? [extra] : []),
       [{ text: m.back }],
     ],
     resize_keyboard: true,
@@ -721,11 +725,11 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
     const check = checkBonusWithdraw(await bonusBalance(user.id), bonusConfig(s).withdrawMin);
     if (!check.ok) {
       await clearState(user.id);
-      return say(chatId, BONUS_TXT[l].belowMin(await bonusBalance(user.id), check.min), bonusKeyboard(l));
+      return say(chatId, BONUS_TXT[l].belowMin(await bonusBalance(user.id), check.min), bonusKeyboard(l, s));
     }
     await setState(user.id, "bonus_confirm", { bk: bk!.id, account: acc });
     // Bonus keyboard back at the bottom; the confirm button sits under the summary.
-    await say(chatId, t.accSaved(bkName), bonusKeyboard(l));
+    await say(chatId, t.accSaved(bkName), bonusKeyboard(l, s));
     return say(chatId, BONUS_TXT[l].confirm(escapeHtml(acc), check.amount), {
       inline_keyboard: [[{ text: BONUS_TXT[l].confirmBtn, callback_data: "bonus:ok", style: "success" }]],
     });
@@ -933,9 +937,9 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
 async function confirmBonusWithdraw(cq: Update, chatId: number, l: L, s: Settings, user: TgUser) {
   const b = BONUS_TXT[l];
   const d = await takeState(user.id, "bonus_confirm");
-  if (!d?.account) return say(chatId, TXT[l].expired, bonusKeyboard(l));
+  if (!d?.account) return say(chatId, TXT[l].expired, bonusKeyboard(l, s));
   const start = await createBonusWithdraw(user.id, d.account, s);
-  if (start.kind === "refused") return say(chatId, b.belowMin(await bonusBalance(user.id), bonusConfig(s).withdrawMin), bonusKeyboard(l));
+  if (start.kind === "refused") return say(chatId, b.belowMin(await bonusBalance(user.id), bonusConfig(s).withdrawMin), bonusKeyboard(l, s));
   const tx = start.tx;
   if (cq.message?.message_id)
     await tg("editMessageReplyMarkup", {
@@ -945,14 +949,14 @@ async function confirmBonusWithdraw(cq: Update, chatId: number, l: L, s: Setting
     }).catch(() => undefined);
   if (!bonusConfig(s).withdrawAuto) {
     inBackground("alert", () => notifyAdminsNewRequest(tx));
-    return say(chatId, b.sent(tx.number), bonusKeyboard(l));
+    return say(chatId, b.sent(tx.number), bonusKeyboard(l, s));
   }
   const r = await autoSendBonus(tx);
-  if (r.kind === "refunded") return say(chatId, b.refunded(escapeHtml(r.message)), bonusKeyboard(l));
+  if (r.kind === "refunded") return say(chatId, b.refunded(escapeHtml(r.message)), bonusKeyboard(l, s));
   // Admins see every bonus payout; a pending one keeps its ✅ / ❌ buttons.
   inBackground("alert", () => notifyAdminsNewRequest({ ...r.tx, source: "bonus" }));
-  if (r.kind === "done") return say(chatId, b.done(r.tx.number, r.tx.amount, escapeHtml(d.account ?? "")), bonusKeyboard(l));
-  return say(chatId, b.sent(tx.number), bonusKeyboard(l));
+  if (r.kind === "done") return say(chatId, b.done(r.tx.number, r.tx.amount, escapeHtml(d.account ?? "")), bonusKeyboard(l, s));
+  return say(chatId, b.sent(tx.number), bonusKeyboard(l, s));
 }
 
 export async function handleUpdate(update: Update, fallbackOrigin: string) {
@@ -1086,7 +1090,10 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     // The Amallar menu is gone; a tap on an old keyboard brings the new main menu.
     if (action === "ops" || action === "history" || action === "rates") return sendMainMenu(chatId, l, s);
     if (action === "contact") return showContact(chatId, l, s);
-    if (action === "bonus") return say(chatId, BONUS_TXT[l].menu, bonusKeyboard(l));
+    if (action === "bonus") return say(chatId, BONUS_TXT[l].menu, bonusKeyboard(l, s));
+    // A VIP / Konkurs tap from an old keyboard after the admin switched it off: fresh bonus menu without it.
+    if ((action === "vip" && !bonusMenuFlags(s).vip) || (action === "contest" && !bonusMenuFlags(s).contest))
+      return say(chatId, BONUS_TXT[l].menu, bonusKeyboard(l, s));
     if (action === "balance" || action === "invite" || action === "daily" || action === "vip" || action === "contest") {
       const screen =
         action === "balance"

@@ -5,7 +5,7 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { adminDeleteReply, adminListReplies, adminSaveReply } from "@/lib/admin.functions";
 import { cn } from "@/lib/utils";
-import { errMsg, PageTitle, Panel } from "@/components/admin/shared";
+import { AdminIcon, errMsg, PageTitle, Panel } from "@/components/admin/shared";
 
 export const Route = createFileRoute("/admin/replies")({
   component: RepliesPage,
@@ -56,7 +56,7 @@ function RepliesPage() {
   return (
     <div className="max-w-4xl">
       <PageTitle
-        title="Avto-javoblar"
+        icon="chat" title="Avto-javoblar"
         sub="Botdagi «Savol-javob ❓» tugmasi shu ro'yxatni ko'rsatadi. Foydalanuvchi savolni o'zi yozsa, kalit so'zlar bo'yicha tayyor javob avtomatik boradi."
         right={
           <button
@@ -84,7 +84,7 @@ function RepliesPage() {
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold">{r.question_uz}</div>
                     <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{r.answer_uz}</p>
-                    {r.keywords && <p className="mt-2 text-xs text-primary">🔑 {r.keywords}</p>}
+                    {r.keywords && <p className="mt-2 flex items-center gap-1.5 text-xs text-primary"><AdminIcon name="key" className="size-4" /> {r.keywords}</p>}
                     {!r.is_active && <p className="mt-1 text-xs text-muted-foreground">O'chirilgan — botda ko'rinmaydi</p>}
                   </div>
                   <button onClick={() => setDraft(r)} aria-label="Tahrirlash" className="rounded-lg bg-secondary p-2">

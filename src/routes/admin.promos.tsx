@@ -62,7 +62,7 @@ function PromosPage() {
   return (
     <div className="max-w-4xl">
       <PageTitle
-        title="Promo-kodlar"
+        icon="ticket" title="Promo-kodlar"
         sub="Foydalanuvchi bukmekerga to'ldirishda promo-kod kiritsa, qo'shimcha bonus foiz BK hisobiga qo'shiladi."
       />
       <Panel className="space-y-4">

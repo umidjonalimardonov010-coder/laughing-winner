@@ -33,20 +33,46 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export function PageTitle({ title, sub, right }: { title: string; sub?: string; right?: ReactNode }) {
+export type IconName =
+  | "chart" | "inbox" | "users" | "megaphone" | "stadium" | "ticket" | "chat" | "video" | "gear"
+  | "trophy" | "bell" | "card" | "shield" | "gift" | "coins" | "support" | "wallet" | "key";
+
+/** 3D LINEBET-style picture icon (files in public/admin/icons). */
+export function AdminIcon({ name, className }: { name: IconName; className?: string }) {
+  return <img src={`/admin/icons/${name}.webp`} alt="" aria-hidden draggable={false} className={cn("size-6 shrink-0 select-none object-contain drop-shadow-[0_4px_8px_oklch(0_0_0/0.45)]", className)} />;
+}
+
+export function PageTitle({ title, sub, right, icon }: { title: string; sub?: string; right?: ReactNode; icon?: IconName }) {
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="font-display text-2xl font-bold md:text-3xl">{title}</h1>
-        {sub && <p className="mt-1 text-muted-foreground">{sub}</p>}
+      <div className="flex items-center gap-4">
+        {icon && (
+          <div className="lb-tile flex size-14 shrink-0 items-center justify-center rounded-2xl md:size-16">
+            <AdminIcon name={icon} className="size-10 md:size-12" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <h1 className="font-display text-2xl font-black uppercase tracking-wide md:text-3xl">{title}</h1>
+          {sub && <p className="mt-1 text-muted-foreground">{sub}</p>}
+        </div>
       </div>
       {right}
     </div>
   );
 }
 
+/** Section heading inside a panel: picture icon + bold title. */
+export function SectionTitle({ icon, children }: { icon: IconName; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 font-display text-base font-bold">
+      <AdminIcon name={icon} className="size-8" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
 export function Panel({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn("rounded-2xl border border-border bg-card p-5", className)}>{children}</div>;
+  return <div className={cn("lb-panel rounded-2xl p-5", className)}>{children}</div>;
 }
 
 export async function uploadMedia(folder: "logos" | "videos" | "broadcast", file: File) {

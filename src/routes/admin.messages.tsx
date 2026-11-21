@@ -2,7 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
+  Ban,
   Bold,
+  CheckCircle2,
   CheckCheck,
   Code,
   EyeOff,
@@ -35,7 +38,7 @@ import {
 import { balance, CAPTION_LIMIT, draftProblem, progressPercent, TEXT_LIMIT, tokenize, visibleLength, type Token } from "@/lib/broadcast-rules";
 import { formatDateTime, formatSom } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { errMsg, PageTitle, Panel, uploadMedia } from "@/components/admin/shared";
+import { AdminIcon, errMsg, PageTitle, Panel, uploadMedia } from "@/components/admin/shared";
 
 export const Route = createFileRoute("/admin/messages")({
   validateSearch: z.object({ to: z.coerce.number().int().positive().optional() }),
@@ -128,20 +131,20 @@ function MessagesPage() {
 
   return (
     <div className="max-w-6xl">
-      <PageTitle title="Xabar yuborish" sub="Bot foydalanuvchilariga matn, rasm yoki video yuboring — hammaga yoki bitta odamga." />
+      <PageTitle icon="megaphone" title="Xabar yuborish" sub="Bot foydalanuvchilariga matn, rasm yoki video yuboring — hammaga yoki bitta odamga." />
 
       <div className="mb-5 grid grid-cols-2 gap-3">
         <ModeCard
           active={mode === "all"}
           onClick={() => setMode("all")}
-          icon={<Megaphone className="size-6" />}
+          icon={<AdminIcon name="megaphone" className="size-9" />}
           title="Barchaga"
           sub={overview.isLoading ? "…" : `${formatSom(counts.all)} ta foydalanuvchi`}
         />
         <ModeCard
           active={mode === "one"}
           onClick={() => setMode("one")}
-          icon={<User className="size-6" />}
+          icon={<AdminIcon name="users" className="size-9" />}
           title="Bitta odamga"
           sub="ID, @username yoki ism bo'yicha"
         />
@@ -155,9 +158,9 @@ function MessagesPage() {
               <div className="grid grid-cols-3 gap-2">
                 {(
                   [
-                    ["all", "Hammasi", "🌍"],
-                    ["uz", "O'zbekcha", "🇺🇿"],
-                    ["ru", "Ruscha", "🇷🇺"],
+                    ["all", "Hammasi", "all"],
+                    ["uz", "O'zbekcha", "UZ"],
+                    ["ru", "Ruscha", "RU"],
                   ] as const
                 ).map(([id, label, flag]) => (
                   <button
@@ -168,8 +171,13 @@ function MessagesPage() {
                       audience === id ? "border-primary bg-primary/10" : "border-border bg-secondary hover:border-primary/40",
                     )}
                   >
-                    <div className="text-sm text-muted-foreground">
-                      {flag} {label}
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      {flag === "all" ? (
+                        <AdminIcon name="users" className="size-5" />
+                      ) : (
+                        <span className="lb-tile rounded-md px-1.5 py-0.5 text-[10px] font-black text-foreground">{flag}</span>
+                      )}
+                      {label}
                     </div>
                     <div className="tabular mt-0.5 text-xl font-bold">{formatSom(counts[id])}</div>
                   </button>
@@ -213,7 +221,7 @@ function MessagesPage() {
           <Panel className="flex flex-wrap items-center gap-3">
             <div className="min-w-0 basis-full text-sm sm:flex-1 sm:basis-auto">
               {problem && (text || buttonText || buttonUrl || media) ? (
-                <span className="text-warning">⚠️ {problem}</span>
+                <span className="inline-flex items-center gap-1.5 text-warning"><AlertTriangle className="size-4 shrink-0" /> {problem}</span>
               ) : mode === "one" && !target ? (
                 <span className="text-muted-foreground">Avval foydalanuvchini tanlang</span>
               ) : (
@@ -279,8 +287,8 @@ function ModeCard({ active, onClick, icon, title, sub }: { active: boolean; onCl
     >
       <span
         className={cn(
-          "flex size-10 shrink-0 items-center justify-center rounded-xl transition sm:size-12",
-          active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground group-hover:text-foreground",
+          "lb-tile flex size-12 shrink-0 items-center justify-center rounded-xl transition sm:size-14",
+          !active && "opacity-80 grayscale-[35%] group-hover:opacity-100 group-hover:grayscale-0",
         )}
       >
         {icon}
@@ -327,7 +335,7 @@ function UserPicker({ target, setTarget }: { target: UserRow | null; setTarget: 
           </div>
           <div className="truncate text-sm text-muted-foreground">
             {target.username ? `@${target.username} · ` : ""}
-            <span className="font-mono">{target.id}</span> · {target.lang === "ru" ? "🇷🇺" : "🇺🇿"}
+            <span className="font-mono">{target.id}</span> · {target.lang === "ru" ? "RU" : "UZ"}
           </div>
         </div>
         <button onClick={() => setTarget(null)} aria-label="Boshqasini tanlash" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary">
@@ -624,7 +632,7 @@ function PhonePreview({ text, media, buttonText, buttonUrl }: { text: string; me
 }
 
 // ---------- History ----------
-const AUD_LABEL: Record<string, string> = { all: "Hammaga", uz: "🇺🇿 O'zbekcha", ru: "🇷🇺 Ruscha" };
+const AUD_LABEL: Record<string, string> = { all: "Hammaga", uz: "O'zbekcha", ru: "Ruscha" };
 const STATUS: Record<string, { label: string; cls: string }> = {
   running: { label: "Yuborilmoqda", cls: "bg-warning/15 text-warning" },
   done: { label: "Yakunlandi", cls: "bg-primary/15 text-primary" },
@@ -668,7 +676,7 @@ function History({ rows, loading }: { rows: HistoryRow[]; loading: boolean }) {
                         {r.kind === "one" && <span className="ml-1.5 font-mono text-xs text-muted-foreground">{r.target_user_id}</span>}
                       </span>
                       <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", st.cls)}>{st.label}</span>
-                      {r.media_type && <span className="rounded-full bg-secondary px-2 py-0.5 text-xs">{r.media_type === "photo" ? "🖼 Rasm" : "🎬 Video"}</span>}
+                      {r.media_type && <span className="rounded-full bg-secondary px-2 py-0.5 text-xs"><span className="inline-flex items-center gap-1"><AdminIcon name="video" className="size-3.5" />{r.media_type === "photo" ? "Rasm" : "Video"}</span></span>}
                       <span className="ml-auto text-xs text-muted-foreground">{formatDateTime(r.created_at)}</span>
                     </div>
                     <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{plain(r.text) || "—"}</p>
@@ -685,9 +693,9 @@ function History({ rows, loading }: { rows: HistoryRow[]; loading: boolean }) {
                           <span className="tabular text-muted-foreground">
                             {formatSom(done)} / {formatSom(r.total)} · {pct}%
                           </span>
-                          <span className="text-primary">✅ {formatSom(r.sent)} yetkazildi</span>
-                          <span className="text-muted-foreground">🚫 {formatSom(r.blocked)} botni bloklagan</span>
-                          {r.failed > 0 && <span className="text-destructive">⚠️ {formatSom(r.failed)} xato</span>}
+                          <span className="inline-flex items-center gap-1 text-primary"><CheckCircle2 className="size-3.5" /> {formatSom(r.sent)} yetkazildi</span>
+                          <span className="inline-flex items-center gap-1 text-muted-foreground"><Ban className="size-3.5" /> {formatSom(r.blocked)} botni bloklagan</span>
+                          {r.failed > 0 && <span className="inline-flex items-center gap-1 text-destructive"><AlertTriangle className="size-3.5" /> {formatSom(r.failed)} xato</span>}
                           {r.status === "running" && (
                             <button
                               onClick={async () => {

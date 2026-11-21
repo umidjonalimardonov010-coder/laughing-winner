@@ -20,7 +20,7 @@ function BookmakersPage() {
   return (
     <div>
       <PageTitle
-        title="Bukmekerlar"
+        icon="stadium" title="Bukmekerlar"
         sub="Ilovada ko'rinadigan bukmekerlar, ularning logotipi, komissiyasi, manzili va summa chegaralari."
         right={
           <button onClick={() => setAdding(true)} className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 font-semibold text-primary-foreground">

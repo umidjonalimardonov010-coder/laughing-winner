@@ -51,4 +51,5 @@ use the editor.
 <!-- AGENT-MEMORY:BEGIN -->
 - Bonus menu money uses `tg_users.balance` as the bonus balance; all changes live in `src/lib/server/bonus.server.ts` (pure rules in `src/lib/bonus-rules.ts`). Sending it to LINEBET is a `bk_deposit` with `source = 'bonus'` (balance taken at creation, refunded atomically on reject); the referral reward is paid from `approveRequest` on a friend's first approved bot deposit, guarded by `tg_users.referral_paid` — so no bonus is ever paid twice.
 - Unpushed work from another Lovable project can't be read here; pushing from this project mirrors it over GitHub, so pull GitHub first when the other project has pushed.
+- Admin panel pictures (menu/section icons, stadium background) are static files in `public/admin/` shown through `AdminIcon` / `.lb-admin-bg` — so they ship with the Railway build without storage.
 <!-- AGENT-MEMORY:END -->

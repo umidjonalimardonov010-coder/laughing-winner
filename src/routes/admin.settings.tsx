@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Circle, Copy, KeyRound, Loader2, Plug, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Copy, Loader2, Plug, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   adminBotStatus,
@@ -15,7 +15,7 @@ import {
   adminSaveSettings,
   adminTestCashdesk,
 } from "@/lib/admin.functions";
-import { errMsg, PageTitle, Panel } from "@/components/admin/shared";
+import { errMsg, PageTitle, Panel, SectionTitle, type IconName } from "@/components/admin/shared";
 
 export const Route = createFileRoute("/admin/settings")({
   component: SettingsPage,
@@ -31,13 +31,15 @@ type Field = {
   multiline?: boolean;
 };
 
-const GROUPS: { title: string; fields: Field[] }[] = [
+const GROUPS: { title: string; icon: IconName; fields: Field[] }[] = [
   {
     title: "Umumiy",
+    icon: "trophy",
     fields: [{ key: "brand_name", label: "Xizmat nomi", hint: "Bot xabarlarida va tavsifida ko'rinadi", placeholder: "Kassa 24/7" }],
   },
   {
-    title: "📢 Majburiy obuna",
+    title: "Majburiy obuna",
+    icon: "bell",
     fields: [
       {
         key: "required_channels",
@@ -50,6 +52,7 @@ const GROUPS: { title: string; fields: Field[] }[] = [
   },
   {
     title: "To'lov qabul qilinadigan karta",
+    icon: "card",
     fields: [
       { key: "card_number", label: "Karta raqami", hint: "Qo'lda rejim uchun: mijoz shu kartaga o'tkazadi, siz ✅ bosasiz. HamyonAPI ulangan bo'lsa kartani HamyonAPI beradi va bu ishlatilmaydi.", placeholder: "8600 0000 0000 0000" },
       { key: "card_holder", label: "Karta egasi", placeholder: "ISM FAMILIYA" },
@@ -59,6 +62,7 @@ const GROUPS: { title: string; fields: Field[] }[] = [
   },
   {
     title: "Xavfsizlik va limitlar",
+    icon: "shield",
     fields: [
       {
         key: "suspicious_repeat_count",
@@ -70,12 +74,14 @@ const GROUPS: { title: string; fields: Field[] }[] = [
   },
   {
     title: "Bonuslar",
+    icon: "gift",
     fields: [
       { key: "deposit_bonus_percent", label: "Hisob to'ldirish bonusi, %", hint: "Mijoz BK hisobiga summa + shu foizni oladi («Olish» summasi). 0 — bonus yo'q, berish = olish." },
     ],
   },
   {
-    title: "💰 Bonus olish (botdagi menyu)",
+    title: "Bonus olish (botdagi menyu)",
+    icon: "coins",
     fields: [
       {
         key: "bonus_referral_reward",
@@ -104,6 +110,7 @@ const GROUPS: { title: string; fields: Field[] }[] = [
   },
   {
     title: "Aloqa",
+    icon: "support",
     fields: [
       { key: "support_username", label: "«💬 Chat» tugmasi — qo'llab-quvvatlash", hint: "Telegram username yoki havola. Bog'lanish bo'limida chiqadi.", placeholder: "@support" },
       { key: "channel_username", label: "«👥 Rasmiy kanal» tugmasi", hint: "Telegram username yoki havola (t.me/...).", placeholder: "@kanal" },
@@ -128,7 +135,7 @@ function SettingsPage() {
 
   return (
     <div className="max-w-3xl">
-      <PageTitle title="Sozlamalar" sub="Bot va ilova ishlashi uchun kerakli ma'lumotlar." />
+      <PageTitle icon="gear" title="Sozlamalar" sub="Bot va ilova ishlashi uchun kerakli ma'lumotlar." />
       <BotPanel />
       <HamyonPanel />
       <CashdeskPanel />
@@ -155,7 +162,7 @@ function SettingsPage() {
         >
           {GROUPS.map((g) => (
             <Panel key={g.title} className="space-y-4">
-              <div className="font-semibold">{g.title}</div>
+              <SectionTitle icon={g.icon}>{g.title}</SectionTitle>
               <div className="grid gap-4 sm:grid-cols-2">
                 {g.fields.map((f) => (
                   <label
@@ -220,7 +227,7 @@ function BotPanel() {
   return (
     <Panel className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="font-semibold">Telegram bot</div>
+        <SectionTitle icon="megaphone">Telegram bot</SectionTitle>
         <button onClick={() => q.refetch()} className="text-muted-foreground" aria-label="Yangilash">
           <RefreshCw className={`size-4 ${q.isFetching ? "animate-spin" : ""}`} />
         </button>
@@ -349,9 +356,7 @@ function HamyonPanel() {
   return (
     <Panel className="mt-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 font-semibold">
-          <KeyRound className="size-4" /> HamyonAPI (avto to'lov qabul qilish)
-        </div>
+        <SectionTitle icon="wallet">HamyonAPI (avto to'lov qabul qilish)</SectionTitle>
         <button onClick={() => q.refetch()} className="text-muted-foreground" aria-label="Yangilash">
           <RefreshCw className={`size-4 ${q.isFetching ? "animate-spin" : ""}`} />
         </button>
@@ -479,9 +484,7 @@ function CashdeskPanel() {
   return (
     <Panel className="mt-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 font-semibold">
-          <KeyRound className="size-4" /> Linebet API (avto to'ldirish va yechish)
-        </div>
+        <SectionTitle icon="key">Linebet API (avto to'ldirish va yechish)</SectionTitle>
         <button onClick={() => q.refetch()} className="text-muted-foreground" aria-label="Yangilash">
           <RefreshCw className={`size-4 ${q.isFetching ? "animate-spin" : ""}`} />
         </button>

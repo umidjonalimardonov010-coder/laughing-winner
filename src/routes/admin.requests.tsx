@@ -36,7 +36,7 @@ function Requests() {
 
   return (
     <div>
-      <PageTitle title="So'rovlar" sub="Foydalanuvchilar yuborgan to'ldirish va yechish so'rovlari. Har 15 soniyada yangilanadi." />
+      <PageTitle icon="inbox" title="So'rovlar" sub="Foydalanuvchilar yuborgan to'ldirish va yechish so'rovlari. Har 15 soniyada yangilanadi." />
       <div className="mb-4 flex flex-wrap gap-2">
         {STATUSES.map((s) => (
           <button

@@ -21,7 +21,7 @@ function VideosPage() {
   return (
     <div>
       <PageTitle
-        title="Videolar"
+        icon="video" title="Videolar"
         sub="Har bir joyga bitta video qo'ying. Kartada video qayerda chiqishi yozilgan. MP4 format, 50 MB gacha tavsiya etiladi (bot chatida 20 MB dan kichik bo'lsin)."
       />
       {q.isLoading ? (

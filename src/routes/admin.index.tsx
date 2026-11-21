@@ -30,7 +30,7 @@ function Dashboard() {
   return (
     <div>
       <PageTitle
-        title="Hisobot"
+        icon="chart" title="Hisobot"
         sub="Kirim-chiqim va asosiy ko'rsatkichlar (faqat bajarilgan amallar)"
         right={
           <div className="flex rounded-xl border border-border bg-card p-1">

@@ -24,6 +24,7 @@ import { hamyonPanelValues, hamyonVerify, loadHamyonCreds, saveHamyonCreds } fro
 import { fixSwappedCreds } from "./hamyon-rules";
 import { audienceCounts, cancelBroadcast, listBroadcasts, resumeBroadcasts, sendOne, startBroadcast } from "./server/broadcast.server";
 import { draftProblem } from "./broadcast-rules";
+import { verifyRequiredChannels } from "./server/subscription.server";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
   return { configured: adminConfigured(), loggedIn: await isAdmin() };
@@ -468,6 +469,11 @@ export const adminSaveSettings = createServerFn({ method: "POST" })
       const v = clean[k];
       if (v !== undefined) clean[k] = v.replace(/[\s,'_]/g, "") || "0";
       if (clean[k] !== undefined && !/^\d+$/.test(clean[k]!)) throw new Error(`Faqat raqam kiriting: ${k}`);
+    }
+    // Mandatory subscription: checked with Telegram only when the list changed, so other saves never wait on it.
+    const channels = clean["required_channels"];
+    if (channels !== undefined && channels !== ((await getSettings()).required_channels ?? "")) {
+      clean["required_channels"] = await verifyRequiredChannels(channels);
     }
     const mode = clean["bonus_withdraw_mode"];
     if (mode !== undefined && mode !== "auto" && mode !== "manual") clean["bonus_withdraw_mode"] = "manual";

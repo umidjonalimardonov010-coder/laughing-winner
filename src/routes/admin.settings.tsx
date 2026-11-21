@@ -37,6 +37,18 @@ const GROUPS: { title: string; fields: Field[] }[] = [
     fields: [{ key: "brand_name", label: "Xizmat nomi", hint: "Bot xabarlarida va tavsifida ko'rinadi", placeholder: "Kassa 24/7" }],
   },
   {
+    title: "📢 Majburiy obuna",
+    fields: [
+      {
+        key: "required_channels",
+        label: "Obuna bo'lish shart bo'lgan kanallar",
+        hint: "Har qatorga bitta kanal (5 tagacha): ochiq kanal — @kanal yoki https://t.me/kanal; yopiq kanal — ID va taklif havolasi: -1001234567890 https://t.me/+abc. Botni har bir kanalga admin qiling, aks holda saqlanmaydi. Bo'sh qoldirsangiz — majburiy obuna o'chadi. Adminlardan obuna so'ralmaydi.",
+        placeholder: "@kassa_news",
+        multiline: true,
+      },
+    ],
+  },
+  {
     title: "To'lov qabul qilinadigan karta",
     fields: [
       { key: "card_number", label: "Karta raqami", hint: "Qo'lda rejim uchun: mijoz shu kartaga o'tkazadi, siz ✅ bosasiz. HamyonAPI ulangan bo'lsa kartani HamyonAPI beradi va bu ishlatilmaydi.", placeholder: "8600 0000 0000 0000" },

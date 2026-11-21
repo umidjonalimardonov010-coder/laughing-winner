@@ -41,6 +41,8 @@ import { bonusConfig, checkBonusWithdraw } from "@/lib/bonus-rules";
 import { cancelByUser, cancelKeyboard, loadHamyonCreds, openPayment, savePayMessage, startHamyonDeposit, startHamyonWatcher } from "./hamyon.server";
 import { paySummary } from "@/lib/hamyon-rules";
 import { resumeBroadcasts } from "./broadcast.server";
+import { missingChannels, requiredChannels, type MissingChannel } from "./subscription.server";
+import { isRequiredChannel } from "@/lib/subscription-rules";
 
 type L = "uz" | "ru";
 const langOf = (v: string | null | undefined): L => (v === "ru" ? "ru" : "uz");
@@ -512,6 +514,65 @@ async function linkSelfieChannel(ch: ChannelRef, adminChatId: number) {
 }
 
 
+const SUB_TXT = {
+  uz: {
+    ask: "❗️ <b>Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling.</b>\n\nObuna bo'lgach «✅ Tekshirish» tugmasini bosing.",
+    join: "➕ Obuna bo'lish",
+    check: "✅ Tekshirish",
+    notYet: "❌ Hali barcha kanallarga obuna bo'lmadingiz.",
+    ok: "✅ Rahmat! Obuna tasdiqlandi.",
+  },
+  ru: {
+    ask: "❗️ <b>Чтобы пользоваться ботом, подпишитесь на каналы ниже.</b>\n\nПосле подписки нажмите «✅ Проверить».",
+    join: "➕ Подписаться",
+    check: "✅ Проверить",
+    notYet: "❌ Вы ещё не подписались на все каналы.",
+    ok: "✅ Спасибо! Подписка подтверждена.",
+  },
+};
+
+function subKeyboard(l: L, miss: MissingChannel[]) {
+  return {
+    inline_keyboard: [
+      ...miss.map((c, i) => [{ text: c.title ? `➕ ${c.title}` : `${SUB_TXT[l].join}${miss.length > 1 ? ` ${i + 1}` : ""}`, url: c.url }]),
+      [{ text: SUB_TXT[l].check, callback_data: "sub:check", style: "success" }],
+    ],
+  };
+}
+
+/** Mandatory subscription: true when the user was shown the channel list and must stop here. Admins are never asked. */
+async function subscriptionGate(chatId: number, l: L, s: Settings, userId: number): Promise<boolean> {
+  if (!requiredChannels(s).length) return false;
+  if (await isTelegramAdmin(userId, s).catch(() => false)) return false;
+  const miss = await missingChannels(userId, s);
+  if (!miss.length) return false;
+  await say(chatId, SUB_TXT[l].ask, subKeyboard(l, miss));
+  return true;
+}
+
+// «✅ Tekshirish»: still missing → alert and fresh buttons; all joined → continue where the user stopped.
+async function handleSubCheck(cq: Update, from: TgFrom, chatId: number, s: Settings) {
+  const { user } = await upsertTgUser(from);
+  const l: L = langOf(user.lang);
+  const answer = (text?: string, alert = false) =>
+    tg("answerCallbackQuery", { callback_query_id: cq.id, ...(text ? { text, show_alert: alert } : {}) }).catch(() => undefined);
+  if (user.is_blocked) {
+    await answer();
+    return void (await say(chatId, TXT[l].blocked).catch(() => undefined));
+  }
+  const miss = await missingChannels(user.id, s);
+  if (miss.length) {
+    await answer(SUB_TXT[l].notYet, true);
+    await tg("editMessageReplyMarkup", { chat_id: chatId, message_id: cq.message?.message_id, reply_markup: subKeyboard(l, miss) }).catch(() => undefined);
+    return;
+  }
+  await answer(SUB_TXT[l].ok);
+  await editInPlace(cq, SUB_TXT[l].ok, { inline_keyboard: [] });
+  if (!user.lang_chosen) return sendLanguagePicker(chatId);
+  if (!user.phone) return sendPhoneRequest(chatId, l);
+  return sendMainMenu(chatId, l, s);
+}
+
 async function sendLanguagePicker(chatId: number) {
   await say(chatId, "Tilni tanlang / Выбрать язык", {
     inline_keyboard: [[
@@ -895,7 +956,20 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
   if (update.my_chat_member) {
     const ch = channelFromBotPromotion(update.my_chat_member);
     const by = update.my_chat_member.from?.id;
-    if (ch && typeof by === "number" && (await isTelegramAdmin(by, s))) await linkSelfieChannel(ch, by);
+    if (!ch || typeof by !== "number" || !(await isTelegramAdmin(by, s))) return;
+    // A public channel or a mandatory-subscription channel is not the private selfie channel: never post there.
+    const username: string | undefined = update.my_chat_member.chat?.username;
+    if (username || isRequiredChannel(requiredChannels(s), { id: ch.id, username: username ?? null })) {
+      await tg("sendMessage", {
+        chat_id: by,
+        text: `✅ Bot <b>${escapeHtml(ch.title || String(ch.id))}</b> kanaliga admin qilindi.\n\nMajburiy obuna uchun: panel → Sozlamalar → «📢 Majburiy obuna» ga ${
+          username ? `<code>@${escapeHtml(username)}</code>` : `<code>${ch.id} https://t.me/+...</code>`
+        } ni yozib saqlang.`,
+        parse_mode: "HTML",
+      }).catch(() => undefined);
+      return;
+    }
+    await linkSelfieChannel(ch, by);
     return;
   }
 
@@ -910,6 +984,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
       return;
     }
     if (data.startsWith("adm:")) return handleAdminDecision(cq, s);
+    if (data === "sub:check") return handleSubCheck(cq, from, chatId, s);
     // Stop the button's spinner right away; the answer follows.
     const answered = tg("answerCallbackQuery", { callback_query_id: cq.id }).catch(() => undefined);
     const { user } = await upsertTgUser(from);
@@ -922,10 +997,12 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
       const l: L = langOf(data.slice(5));
       await sql`update public.tg_users set lang = ${l}, lang_chosen = true where id = ${user.id}`;
       await editInPlace(cq, TXT[l].langSaved, { inline_keyboard: [] });
+      if (await subscriptionGate(chatId, l, s, user.id)) return;
       if (!user.phone) return sendPhoneRequest(chatId, l);
       return sendMainMenu(chatId, l, s);
     }
     const l: L = langOf(user.lang);
+    if (await subscriptionGate(chatId, l, s, user.id)) return;
     if (!user.phone) return sendPhoneRequest(chatId, l);
     return handleCustomerCallback(cq, chatId, l, s, user, data);
   }
@@ -943,6 +1020,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     if (user.is_blocked) return void (await say(chatId, TXT[langOf(user.lang)].blocked));
     await clearState(user.id);
     if (!user.lang_chosen) return sendLanguagePicker(chatId);
+    if (await subscriptionGate(chatId, langOf(user.lang), s, user.id)) return;
     if (!user.phone) return sendPhoneRequest(chatId, langOf(user.lang));
     return sendMainMenu(chatId, langOf(user.lang), s);
   }
@@ -961,6 +1039,7 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     }
     await savePhone(user.id, phone);
     if (!user.lang_chosen) return sendLanguagePicker(chatId);
+    if (await subscriptionGate(chatId, l, s, user.id)) return;
     return sendMainMenu(chatId, l, s, t.phoneSaved);
   }
 
@@ -978,6 +1057,9 @@ export async function handleUpdate(update: Update, fallbackOrigin: string) {
     if (isChannelCmd) return sendChannelHelp(chatId, s);
     return sendAdminPanel(chatId, s, base);
   }
+
+  // Not subscribed to the required channels → only the channel list shows.
+  if (user.lang_chosen && (await subscriptionGate(chatId, l, s, user.id))) return;
 
   // No phone yet → nothing else opens.
   if (!user.phone) return sendPhoneRequest(chatId, l);

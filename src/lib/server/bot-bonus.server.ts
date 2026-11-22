@@ -70,8 +70,8 @@ export async function balanceScreen(l: L, s: Settings, userId: number): Promise<
       : "";
   const text =
     l === "ru"
-      ? `💰 <b>Бонусный баланс:</b> ${formatSom(bal)} ${som}\n\n📤 Вывод — на ваш счёт LINEBET, от ${formatSom(min)} ${som}.${rule}`
-      : `💰 <b>Bonus balansingiz:</b> ${formatSom(bal)} ${som}\n\n📤 Yechib olish — LINEBET hisobingizga, kamida ${formatSom(min)} ${som}.${rule}`;
+      ? `💰 <b>Бонусный баланс:</b> ${formatSom(bal)} ${som}\n\n📤 Вывод — на ваш счёт LINEBET.\n❗️ Здесь можно вывести только <b>${formatSom(min)} ${som}</b>${rule}`
+      : `💰 <b>Bonus balansingiz:</b> ${formatSom(bal)} ${som}\n\n📤 Yechib olish — LINEBET hisobingizga.\n❗️ Shu joyda faqat <b>${formatSom(min)} ${som}</b> yecha olasiz${rule}`;
   return { text, markup: { inline_keyboard: [[{ text: BONUS_TXT[l].wdBtn, callback_data: "bonus:wd", style: "success" }]] } };
 }
 

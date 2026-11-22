@@ -7,7 +7,7 @@ import { TX_COLS, type TxRow } from "./tx.server";
 import { approveBotRequest, type BotTx } from "./exchange.server";
 import { loadCashdeskCreds } from "./cashdesk-config.server";
 import { escapeHtml, tg, telegramMode } from "./telegram.server";
-import { bonusConfig, checkBonusWithdraw, msUntilNextDay, pickDailyBonus, tashkentDay, type WithdrawCheck } from "@/lib/bonus-rules";
+import { bonusConfig, bonusWithdrawWaitMs, checkBonusWithdraw, msUntilNextDay, pickDailyBonus, tashkentDay, type WithdrawCheck } from "@/lib/bonus-rules";
 import { formatSom } from "@/lib/format";
 
 /** The bonus balance always goes to this bookmaker. */
@@ -79,13 +79,37 @@ export async function rewardReferrer(userId: number) {
   return out;
 }
 
-export type BonusWithdrawStart = { kind: "created"; tx: BotTx } | { kind: "refused"; check: WithdrawCheck };
+export type BonusWithdrawStart =
+  | { kind: "created"; tx: BotTx }
+  | { kind: "refused"; check: WithdrawCheck }
+  | { kind: "wait"; waitMs: number };
 
-/** Takes the whole bonus balance off and opens a LINEBET top-up request for it (source 'bonus'). */
+// Newest bonus withdrawal that was not refused (a refused one never blocks the next).
+const toDate = (r: { at: number | null }[]) => (r[0]?.at ? new Date(Number(r[0].at)) : null);
+
+/** How long this customer still waits before the next bonus withdrawal (ms, 0 = may withdraw). */
+export async function bonusWithdrawWait(userId: number, s: Settings): Promise<number> {
+  const hours = bonusConfig(s).withdrawEveryHours;
+  if (hours <= 0) return 0;
+  return bonusWithdrawWaitMs(toDate(await sql<{ at: number | null }[]>`
+        select (extract(epoch from max(created_at)) * 1000)::float8 as at from public.transactions
+        where user_id = ${userId} and source = 'bonus' and type = 'bk_deposit' and status <> 'rejected'`), hours);
+}
+
+/**
+ * Takes the whole bonus balance off and opens a LINEBET top-up request for it (source 'bonus').
+ * The once-per-N-hours rule is checked again under the user's row lock, so two taps can't pass it.
+ */
 export async function createBonusWithdraw(userId: number, account: string, s: Settings): Promise<BonusWithdrawStart> {
-  const min = bonusConfig(s).withdrawMin;
+  const { withdrawMin: min, withdrawEveryHours: hours } = bonusConfig(s);
   return sql.begin(async (tx) => {
     const u = await tx<{ balance: number }[]>`select balance::float8 as balance from public.tg_users where id = ${userId} for update`;
+    if (hours > 0) {
+      const waitMs = bonusWithdrawWaitMs(toDate(await tx<{ at: number | null }[]>`
+        select (extract(epoch from max(created_at)) * 1000)::float8 as at from public.transactions
+        where user_id = ${userId} and source = 'bonus' and type = 'bk_deposit' and status <> 'rejected'`), hours);
+      if (waitMs > 0) return { kind: "wait", waitMs } as const;
+    }
     const check = checkBonusWithdraw(Number(u[0]?.balance ?? 0), min);
     if (!check.ok) return { kind: "refused", check } as const;
     await tx`update public.tg_users set balance = balance - ${check.amount} where id = ${userId}`;
@@ -150,4 +174,21 @@ export async function autoSendBonus(tx: BotTx): Promise<AutoOutcome> {
     const cur = await maybeOne(sql<TxRow[]>`select ${TX_COLS()} from public.transactions where id = ${tx.id}`);
     return { kind: "pending", tx: { ...(cur ?? tx), source: "bonus" } };
   }
+}
+
+/**
+ * Admin "Balanslarni 0 qilish": every bonus balance becomes 0. Each cleared balance is written as a
+ * minus "Balans tuzatish" record, so the customer's history still explains where the money went.
+ */
+export async function resetAllBalances(): Promise<{ users: number; sum: number }> {
+  // One statement: lock, log and clear together, so a bonus paid at the same moment is never lost.
+  const rows = await sql<{ n: number; s: number }[]>`
+    with z as (select id, balance from public.tg_users where balance <> 0 for update),
+    u as (update public.tg_users t set balance = 0 from z where t.id = z.id),
+    ins as (
+      insert into public.transactions (user_id, type, status, amount, admin_note, source, processed_at)
+      select id, 'adjustment', 'approved', -balance, 'Balans 0 qilindi', 'reset', now() from z
+    )
+    select count(*)::float8 as n, coalesce(sum(balance), 0)::float8 as s from z`;
+  return { users: Number(rows[0]?.n ?? 0), sum: Number(rows[0]?.s ?? 0) };
 }

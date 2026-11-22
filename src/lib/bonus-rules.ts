@@ -10,6 +10,8 @@ export type BonusConfig = {
   withdrawMin: number;
   /** true = the cashdesk sends it at once; false = an admin approves each request. */
   withdrawAuto: boolean;
+  /** A customer may send the bonus to LINEBET once per this many hours. 0 = no limit. */
+  withdrawEveryHours: number;
 };
 
 const whole = (v: string | undefined, fallback: number) => {
@@ -23,7 +25,11 @@ export const BONUS_DEFAULTS = {
   bonus_daily_max: "3000",
   bonus_withdraw_min: "10000",
   bonus_withdraw_mode: "manual",
+  bonus_withdraw_hours: "24",
 } as const;
+
+/** Longest gap the admin may set between two bonus withdrawals (30 days). */
+export const MAX_WITHDRAW_HOURS = 720;
 
 export function bonusConfig(s: Partial<Record<keyof typeof BONUS_DEFAULTS, string>>): BonusConfig {
   const d = BONUS_DEFAULTS;
@@ -33,6 +39,7 @@ export function bonusConfig(s: Partial<Record<keyof typeof BONUS_DEFAULTS, strin
     dailyMax: whole(s.bonus_daily_max, Number(d.bonus_daily_max)),
     withdrawMin: whole(s.bonus_withdraw_min, Number(d.bonus_withdraw_min)),
     withdrawAuto: (s.bonus_withdraw_mode ?? d.bonus_withdraw_mode) === "auto",
+    withdrawEveryHours: Math.min(MAX_WITHDRAW_HOURS, whole(s.bonus_withdraw_hours, Number(d.bonus_withdraw_hours))),
   };
 }
 
@@ -73,4 +80,20 @@ export function checkBonusWithdraw(balance: number, min: number): WithdrawCheck 
   if (b <= 0) return { ok: false, reason: "empty", min };
   if (b < Math.max(1, min)) return { ok: false, reason: "below_min", min };
   return { ok: true, amount: b };
+}
+
+/**
+ * How long the customer still has to wait before the next bonus withdrawal (ms, 0 = may withdraw now).
+ * `last` is the newest bonus withdrawal that was not refused; a refused one never blocks the next.
+ */
+export function bonusWithdrawWaitMs(last: Date | null, everyHours: number, now: Date = new Date()): number {
+  if (!last || everyHours <= 0) return 0;
+  return Math.max(0, last.getTime() + everyHours * 3600_000 - now.getTime());
+}
+
+/** Wait time split for the message: hours and minutes (at least 1 minute while waiting). */
+export function splitWait(ms: number): { h: number; m: number } {
+  if (ms <= 0) return { h: 0, m: 0 };
+  const totalMin = Math.ceil(ms / 60_000);
+  return { h: Math.floor(totalMin / 60), m: totalMin % 60 };
 }

@@ -25,6 +25,7 @@ export const SETTING_KEYS = [
   "bonus_daily_max",
   "bonus_withdraw_min",
   "bonus_withdraw_mode",
+  "bonus_withdraw_hours",
   "required_channels",
   "vip_enabled",
   "vip_levels",
@@ -34,6 +35,7 @@ export const SETTING_KEYS = [
   "contest_min_som",
   "contest_announce",
   "contest_since",
+  "stats_since",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 export type Settings = Record<SettingKey, string>;

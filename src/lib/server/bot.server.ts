@@ -35,7 +35,7 @@ import {
   type StepData,
 } from "./exchange.server";
 import type { Bookmaker } from "./wallet-auth.server";
-import { BONUS_BK, autoSendBonus, bonusBalance, createBonusWithdraw } from "./bonus.server";
+import { BONUS_BK, autoSendBonus, bonusBalance, bonusWithdrawWait, createBonusWithdraw } from "./bonus.server";
 import { BONUS_TXT, balanceScreen, contestScreen, dailyScreen, inviteScreen, vipScreen } from "./bot-bonus.server";
 import { bonusMenuFlags } from "@/lib/bonus-menu";
 import { startContestWatcher } from "./contest.server";
@@ -722,6 +722,11 @@ async function handleStep(chatId: number, l: L, s: Settings, user: TgUser, st: {
     if (!acc) return say(chatId, t.badAccount);
     if ((await accountExists(bk!.id, acc)) === false) return say(chatId, t.noAccount);
     await saveAccount(user.id, bk!.id, acc);
+    const waitMs = await bonusWithdrawWait(user.id, s);
+    if (waitMs > 0) {
+      await clearState(user.id);
+      return say(chatId, BONUS_TXT[l].wait(waitMs, bonusConfig(s).withdrawEveryHours), bonusKeyboard(l, s));
+    }
     const check = checkBonusWithdraw(await bonusBalance(user.id), bonusConfig(s).withdrawMin);
     if (!check.ok) {
       await clearState(user.id);
@@ -900,7 +905,8 @@ async function handleCustomerCallback(cq: Update, chatId: number, l: L, s: Setti
     const b = BONUS_TXT[l];
     const bk = await findBk(BONUS_BK, s);
     if (!bk) return say(chatId, b.noBk);
-    const bal = await bonusBalance(user.id);
+    const [bal, waitMs] = await Promise.all([bonusBalance(user.id), bonusWithdrawWait(user.id, s)]);
+    if (waitMs > 0) return say(chatId, b.wait(waitMs, bonusConfig(s).withdrawEveryHours));
     const check = checkBonusWithdraw(bal, bonusConfig(s).withdrawMin);
     if (!check.ok) return say(chatId, b.belowMin(bal, check.min));
     await setState(user.id, "bonus_account", { bk: bk.id });
@@ -939,6 +945,7 @@ async function confirmBonusWithdraw(cq: Update, chatId: number, l: L, s: Setting
   const d = await takeState(user.id, "bonus_confirm");
   if (!d?.account) return say(chatId, TXT[l].expired, bonusKeyboard(l, s));
   const start = await createBonusWithdraw(user.id, d.account, s);
+  if (start.kind === "wait") return say(chatId, b.wait(start.waitMs, bonusConfig(s).withdrawEveryHours), bonusKeyboard(l, s));
   if (start.kind === "refused") return say(chatId, b.belowMin(await bonusBalance(user.id), bonusConfig(s).withdrawMin), bonusKeyboard(l, s));
   const tx = start.tx;
   if (cq.message?.message_id)

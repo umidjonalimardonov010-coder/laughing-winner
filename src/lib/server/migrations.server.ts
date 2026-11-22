@@ -244,6 +244,25 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
         where type = 'bk_deposit' and status = 'approved' and source = 'bot'`;
     },
   },
+  {
+    // Bonus → LINEBET once per 24 hours by default (admin changes the hours in Sozlamalar).
+    id: "2026-11-22-bonus-withdraw-hours",
+    run: () => sql`insert into public.app_settings (key, value) values ('bonus_withdraw_hours', ${BONUS_DEFAULTS.bonus_withdraw_hours})
+      on conflict (key) do nothing`,
+  },
+  {
+    // Owner asked for a fresh start: dashboard counts from now, every bonus balance becomes 0
+    // (each cleared balance stays in the customer's history as "Balans 0 qilindi").
+    id: "2026-11-22-fresh-start",
+    run: async () => {
+      await sql`insert into public.app_settings (key, value, updated_at) values ('stats_since', ${new Date().toISOString()}, now())
+        on conflict (key) do update set value = excluded.value, updated_at = now()`;
+      await sql`with z as (select id, balance from public.tg_users where balance <> 0 for update),
+        u as (update public.tg_users t set balance = 0 from z where t.id = z.id)
+        insert into public.transactions (user_id, type, status, amount, admin_note, source, processed_at)
+        select id, 'adjustment', 'approved', -balance, 'Balans 0 qilindi', 'reset', now() from z`;
+    },
+  },
 ];
 
 let done: Promise<void> | undefined;

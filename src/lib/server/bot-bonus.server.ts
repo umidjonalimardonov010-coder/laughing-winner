@@ -1,15 +1,19 @@
 // "💰 BONUS OLISH" screens in the chat bot: balance (→ LINEBET), invite friends, daily bonus, VIP level, weekly contest.
 import type { Settings } from "./settings.server";
-import { bonusBalance, claimDailyBonus, referralStats } from "./bonus.server";
+import { bonusBalance, bonusWithdrawWait, claimDailyBonus, referralStats } from "./bonus.server";
 import { resolveBotUsername } from "./bot-username.server";
 import { escapeHtml } from "./telegram.server";
-import { bonusConfig } from "@/lib/bonus-rules";
+import { bonusConfig, splitWait } from "@/lib/bonus-rules";
 import { referralLink, shareLink } from "@/lib/referral";
 import { formatSom } from "@/lib/format";
 import { vipStatus } from "./vip.server";
 import { myContest } from "./contest.server";
 
 type L = "uz" | "ru";
+
+type Wait = { h: number; m: number };
+const waitUz = (w: Wait) => (w.h && w.m ? `${w.h} soat ${w.m} daqiqadan` : w.h ? `${w.h} soatdan` : `${w.m} daqiqadan`);
+const waitRu = (w: Wait) => (w.h && w.m ? `${w.h} ч ${w.m} мин` : w.h ? `${w.h} ч` : `${w.m} мин`);
 type Screen = { text: string; markup?: unknown };
 
 export const BONUS_TXT = {
@@ -27,6 +31,10 @@ export const BONUS_TXT = {
     refunded: (msg: string) => `❌ LINEBET qabul qilmadi: ${msg}\n↩️ Pul bonus balansingizga qaytdi. ID ni tekshirib, qaytadan urinib ko'ring.`,
     sending: (n: number) => `⏳ #${n} yuborilmoqda`,
     noBk: "LINEBET hozircha ishlamayapti. Birozdan keyin urinib ko'ring.",
+    wait: (ms: number, hours: number) => {
+      const w = splitWait(ms);
+      return `⏳ Bonusni <b>${hours} soatda 1 marta</b> yechish mumkin.\n\n🕒 Keyingi yechish: <b>${waitUz(w)}</b> keyin.`;
+    },
   },
   ru: {
     menu: "💰 Раздел бонусов — выберите кнопку",
@@ -42,17 +50,28 @@ export const BONUS_TXT = {
     refunded: (msg: string) => `❌ LINEBET не принял: ${msg}\n↩️ Деньги вернулись на бонусный баланс. Проверьте ID и попробуйте снова.`,
     sending: (n: number) => `⏳ #${n} отправляется`,
     noBk: "LINEBET сейчас недоступен. Попробуйте чуть позже.",
+    wait: (ms: number, hours: number) => {
+      const w = splitWait(ms);
+      return `⏳ Бонус можно выводить <b>1 раз в ${hours} ч</b>.\n\n🕒 Следующий вывод через <b>${waitRu(w)}</b>.`;
+    },
   },
 };
 
 export async function balanceScreen(l: L, s: Settings, userId: number): Promise<Screen> {
-  const bal = await bonusBalance(userId);
-  const min = bonusConfig(s).withdrawMin;
+  const [bal, waitMs] = await Promise.all([bonusBalance(userId), bonusWithdrawWait(userId, s)]);
+  const { withdrawMin: min, withdrawEveryHours: hours } = bonusConfig(s);
   const som = l === "ru" ? "сум" : "so'm";
+  const w = splitWait(waitMs);
+  const rule =
+    hours > 0
+      ? l === "ru"
+        ? `\n🕒 Вывод — 1 раз в ${hours} ч.${waitMs > 0 ? ` Следующий через <b>${waitRu(w)}</b>.` : ""}`
+        : `\n🕒 Yechish — ${hours} soatda 1 marta.${waitMs > 0 ? ` Keyingisi <b>${waitUz(w)}</b> keyin.` : ""}`
+      : "";
   const text =
     l === "ru"
-      ? `💰 <b>Бонусный баланс:</b> ${formatSom(bal)} ${som}\n\n📤 Вывод — на ваш счёт LINEBET, от ${formatSom(min)} ${som}.`
-      : `💰 <b>Bonus balansingiz:</b> ${formatSom(bal)} ${som}\n\n📤 Yechib olish — LINEBET hisobingizga, kamida ${formatSom(min)} ${som}.`;
+      ? `💰 <b>Бонусный баланс:</b> ${formatSom(bal)} ${som}\n\n📤 Вывод — на ваш счёт LINEBET, от ${formatSom(min)} ${som}.${rule}`
+      : `💰 <b>Bonus balansingiz:</b> ${formatSom(bal)} ${som}\n\n📤 Yechib olish — LINEBET hisobingizga, kamida ${formatSom(min)} ${som}.${rule}`;
   return { text, markup: { inline_keyboard: [[{ text: BONUS_TXT[l].wdBtn, callback_data: "bonus:wd", style: "success" }]] } };
 }
 

@@ -97,6 +97,7 @@ export function errMsg(e: unknown) {
     promo_bad_date: "Muddat sanasi noto'g'ri",
     user_not_found: "Foydalanuvchi topilmadi",
     no_users: "Bu guruhda foydalanuvchi yo'q",
+    bonus_hours_too_big: "Yechish oralig'i ko'pi bilan 720 soat (30 kun)",
     vip_bad_line: "Daraja qatori noto'g'ri. Shunday yozing: Nomi | summadan | foiz",
     vip_bad_from: "Daraja summasi noto'g'ri",
     vip_bad_pct: "Keshbek 0 dan 20% gacha bo'lsin",

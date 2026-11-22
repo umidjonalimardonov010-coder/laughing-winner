@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Loader2, RotateCcw, Wallet } from "lucide-react";
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { adminDashboard } from "@/lib/admin.functions";
+import { adminDashboard, adminResetBalances, adminResetStats } from "@/lib/admin.functions";
 import { formatSom } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { PageTitle, Panel, TYPE_LABEL } from "@/components/admin/shared";
+import { errMsg, PageTitle, Panel, TYPE_LABEL } from "@/components/admin/shared";
 
 export const Route = createFileRoute("/admin/")({
   component: Dashboard,
@@ -46,6 +48,7 @@ function Dashboard() {
           </div>
         }
       />
+      <ResetBar statsSince={d?.statsSince ?? null} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Kirim" value={`${formatSom(kirim)} so'm`} tone="in" />
         <Stat label="Chiqim" value={`${formatSom(chiqim)} so'm`} tone="out" />
@@ -170,6 +173,56 @@ function Dashboard() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+function ResetBar({ statsSince }: { statsSince: string | null }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState<"" | "stats" | "bal">("");
+  const run = async (kind: "stats" | "bal") => {
+    const ask =
+      kind === "stats"
+        ? "Hisobot 0 dan boshlansinmi? So'rovlar va tarix o'chmaydi, faqat hisobot shu daqiqadan hisoblanadi."
+        : "Barcha mijozlarning bonus balansi 0 qilinsinmi? Buni ortga qaytarib bo'lmaydi.";
+    if (!confirm(ask)) return;
+    setBusy(kind);
+    try {
+      if (kind === "stats") {
+        await adminResetStats();
+        toast.success("Hisobot 0 qilindi");
+      } else {
+        const r = await adminResetBalances();
+        toast.success(r.users ? `${r.users} ta mijozning balansi 0 qilindi (${formatSom(r.sum)} so'm)` : "Hamma balanslar allaqachon 0");
+      }
+      await qc.invalidateQueries({ queryKey: ["admin-dash"] });
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <Panel className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="min-w-0 flex-1 text-sm text-muted-foreground">
+        {statsSince ? `Hisobot ${new Date(statsSince).toLocaleString("uz-UZ", { timeZone: "Asia/Tashkent" })} dan hisoblanmoqda` : "Hisobot boshidan hisoblanmoqda"}
+      </div>
+      <button
+        onClick={() => run("stats")}
+        disabled={!!busy}
+        className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-secondary px-4 text-sm font-semibold disabled:opacity-60"
+      >
+        {busy === "stats" ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
+        Statistikani 0 qilish
+      </button>
+      <button
+        onClick={() => run("bal")}
+        disabled={!!busy}
+        className="inline-flex h-10 items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 text-sm font-semibold text-destructive disabled:opacity-60"
+      >
+        {busy === "bal" ? <Loader2 className="size-4 animate-spin" /> : <Wallet className="size-4" />}
+        Balanslarni 0 qilish
+      </button>
+    </Panel>
   );
 }
 

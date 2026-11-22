@@ -98,6 +98,12 @@ const GROUPS: { title: string; icon: IconName; fields: Field[] }[] = [
       },
       { key: "bonus_withdraw_min", label: "LINEBET'ga yechish — eng kam summa (so'm)", hint: "Bonus balans shundan kam bo'lsa yechib bo'lmaydi.", placeholder: "10000" },
       {
+        key: "bonus_withdraw_hours",
+        label: "LINEBET'ga yechish — necha soatda 1 marta",
+        hint: "Mijoz bonusni shuncha soatda bir marta yecha oladi (masalan 24). Rad etilgan so'rov hisobga olinmaydi. 0 — cheklov yo'q, eng ko'pi 720.",
+        placeholder: "24",
+      },
+      {
         key: "bonus_withdraw_mode",
         label: "LINEBET'ga yechish qanday bo'lsin",
         hint: "Avto — kassa orqali darhol o'tadi (kassa ulangan bo'lsa). Admin — har bir so'rovga siz ✅ bosasiz. ❌ bosilsa pul mijozning bonus balansiga qaytadi.",

@@ -25,6 +25,9 @@ import { fixSwappedCreds } from "./hamyon-rules";
 import { audienceCounts, cancelBroadcast, listBroadcasts, resumeBroadcasts, sendOne, startBroadcast } from "./server/broadcast.server";
 import { draftProblem } from "./broadcast-rules";
 import { verifyRequiredChannels } from "./server/subscription.server";
+import { BONUS_DEFAULTS, MAX_WITHDRAW_HOURS } from "./bonus-rules";
+import { statsStart } from "./stats-rules";
+import { resetAllBalances } from "./server/bonus.server";
 
 export const adminStatus = createServerFn({ method: "POST" }).handler(async () => {
   return { configured: adminConfigured(), loggedIn: await isAdmin() };
@@ -71,7 +74,9 @@ export const adminDashboard = createServerFn({ method: "POST" })
     const since = new Date();
     since.setHours(0, 0, 0, 0);
     since.setDate(since.getDate() - (data.days - 1));
-    const sinceIso = since.toISOString();
+    // After "Statistikani 0 qilish" only what happened since the reset is counted.
+    const statsSince = (await getSettings()).stats_since || null;
+    const sinceIso = statsStart(since, statsSince ?? undefined).toISOString();
 
     const txs = await sql<
       {
@@ -155,6 +160,7 @@ export const adminDashboard = createServerFn({ method: "POST" })
       blocked,
       requestCount,
       topUsers: [...topUsers],
+      statsSince,
       pending,
       totalBalance,
       byType,
@@ -162,6 +168,20 @@ export const adminDashboard = createServerFn({ method: "POST" })
       series: Object.values(days),
     };
   });
+
+// "Statistikani 0 qilish": the dashboard counts from now on; requests and history stay.
+export const adminResetStats = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  const at = new Date().toISOString();
+  await saveSettings({ stats_since: at });
+  return { at };
+});
+
+// "Balanslarni 0 qilish": every customer's bonus balance becomes 0 (written into their history).
+export const adminResetBalances = createServerFn({ method: "POST" }).handler(async () => {
+  await requireAdmin();
+  return resetAllBalances();
+});
 
 // ---------- Requests ----------
 const typeEnum = z.enum(["wallet_topup", "card_withdraw", "bk_deposit", "bk_withdraw", "referral_bonus", "adjustment"]);
@@ -465,11 +485,13 @@ export const adminSaveSettings = createServerFn({ method: "POST" })
       "bonus_daily_min",
       "bonus_daily_max",
       "bonus_withdraw_min",
+      "bonus_withdraw_hours",
     ] as const) {
       const v = clean[k];
-      if (v !== undefined) clean[k] = v.replace(/[\s,'_]/g, "") || "0";
+      if (v !== undefined) clean[k] = v.replace(/[\s,'_]/g, "") || (k === "bonus_withdraw_hours" ? BONUS_DEFAULTS.bonus_withdraw_hours : "0");
       if (clean[k] !== undefined && !/^\d+$/.test(clean[k]!)) throw new Error(`Faqat raqam kiriting: ${k}`);
     }
+    if (Number(clean["bonus_withdraw_hours"] ?? 0) > MAX_WITHDRAW_HOURS) throw new Error("bonus_hours_too_big");
     // Mandatory subscription: checked with Telegram only when the list changed, so other saves never wait on it.
     const channels = clean["required_channels"];
     if (channels !== undefined && channels !== ((await getSettings()).required_channels ?? "")) {

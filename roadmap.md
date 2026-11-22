@@ -78,3 +78,7 @@
 - [x] Weekly contest: tickets per som, auto draw Monday 00:00 Tashkent, prizes to bonus balance, winners told (+ optional announce to all), bot «🏆 KONKURS»
 - [x] Admin page «VIP va Konkurs»: switches, levels editor, prizes, this week's tickets, draw now, history
 - [ ] Owner switches VIP and contest on in the panel and sets the real levels / prizes (both off until then)
+
+## 2026-11-22 request: bonus withdraw limit + fresh start
+- [x] Bonus → LINEBET once per 24 hours; hours set in admin Sozlamalar → «Bonus olish»
+- [x] Dashboard statistics and all bonus balances reset to 0 (one-time on deploy) + panel buttons for later

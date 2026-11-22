@@ -32,6 +32,7 @@ describe("bonus withdraw to LINEBET", () => {
   it("needs at least the admin's minimum", () => {
     expect(checkBonusWithdraw(9_999, 10_000)).toEqual({ ok: false, reason: "below_min", min: 10_000 });
     expect(checkBonusWithdraw(10_000, 10_000)).toEqual({ ok: true, amount: 10_000 });
+    expect(checkBonusWithdraw(501_000, 6_000)).toEqual({ ok: true, amount: 6_000 });
     expect(checkBonusWithdraw(0, 10_000)).toMatchObject({ ok: false, reason: "empty" });
   });
 });

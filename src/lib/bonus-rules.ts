@@ -79,7 +79,8 @@ export function checkBonusWithdraw(balance: number, min: number): WithdrawCheck 
   const b = Math.floor(balance);
   if (b <= 0) return { ok: false, reason: "empty", min };
   if (b < Math.max(1, min)) return { ok: false, reason: "below_min", min };
-  return { ok: true, amount: b };
+  // Only the set amount ("faqat N so'm") goes out per withdrawal; the rest stays on the bonus balance.
+  return { ok: true, amount: min > 0 ? Math.floor(min) : b };
 }
 
 /**

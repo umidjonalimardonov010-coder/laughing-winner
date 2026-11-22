@@ -96,7 +96,7 @@ const GROUPS: { title: string; icon: IconName; fields: Field[] }[] = [
         hint: "Har kuni (Toshkent vaqti bilan) bir marta shu oraliqdagi tasodifiy summa beriladi. Ikkalasi teng bo'lsa — har kuni bir xil. 0 — o'chirilgan.",
         placeholder: "3000",
       },
-      { key: "bonus_withdraw_min", label: "LINEBET'ga yechish — eng kam summa (so'm)", hint: "Bonus balans shundan kam bo'lsa yechib bo'lmaydi.", placeholder: "10000" },
+      { key: "bonus_withdraw_min", label: "LINEBET'ga yechish — summa (so'm)", hint: "Har safar faqat shu summa yechiladi; balans kam bo'lsa yechib bo'lmaydi.", placeholder: "10000" },
       {
         key: "bonus_withdraw_hours",
         label: "LINEBET'ga yechish — necha soatda 1 marta",

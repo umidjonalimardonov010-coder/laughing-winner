@@ -97,7 +97,7 @@ export async function bonusWithdrawWait(userId: number, s: Settings): Promise<nu
 }
 
 /**
- * Takes the whole bonus balance off and opens a LINEBET top-up request for it (source 'bonus').
+ * Takes the set withdraw amount off the bonus balance and opens a LINEBET top-up request for it (source 'bonus').
  * The once-per-N-hours rule is checked again under the user's row lock, so two taps can't pass it.
  */
 export async function createBonusWithdraw(userId: number, account: string, s: Settings): Promise<BonusWithdrawStart> {

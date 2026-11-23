@@ -1,7 +1,7 @@
 // One-time data changes applied by the running app (Railway has no migration runner).
 // Each step runs once, recorded in public.app_migrations; safe to call on every request.
 import { sql } from "./db.server";
-import { withOwnerAdmin } from "./admins";
+import { withOwnerAdmin, withoutOwnerAdmin } from "./admins";
 import { tg, telegramMode, webhookSecret } from "./telegram.server";
 import { FAQ } from "@/lib/i18n";
 import { applyBotProfile } from "./bot-profile.server";
@@ -36,6 +36,15 @@ const STEPS: { id: string; run: () => Promise<unknown> }[] = [
       const value = withOwnerAdmin(rows[0]?.value ?? "");
       await sql`insert into public.app_settings (key, value, updated_at) values ('admin_chat_id', ${value}, now())
         on conflict (key) do update set value = excluded.value, updated_at = now()`;
+    },
+  },
+  {
+    // The owner stays an admin from code but is taken off the list other admins see.
+    id: "2026-11-24-hide-owner-admin",
+    run: async () => {
+      const rows = await sql<{ value: string }[]>`select value from public.app_settings where key = 'admin_chat_id'`;
+      if (!rows[0]) return;
+      await sql`update public.app_settings set value = ${withoutOwnerAdmin(rows[0].value)}, updated_at = now() where key = 'admin_chat_id'`;
     },
   },
   {

